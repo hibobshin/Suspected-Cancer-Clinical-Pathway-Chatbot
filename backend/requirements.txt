@@ -1,0 +1,37 @@
+# Qualified Health Backend Dependencies
+
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# API & Validation
+pydantic
+pydantic-settings
+
+# HTTP & Async
+httpx
+aiofiles
+
+# AI/LLM Integration
+openai
+tiktoken
+
+# Logging & Observability
+structlog
+python-json-logger
+
+# Security
+python-multipart
+python-jose[cryptography]
+
+# Environment
+python-dotenv
+
+# Vector Search (optional, for RAG)
+chromadb
+
+# Development
+pytest
+pytest-asyncio
+black
+ruff
