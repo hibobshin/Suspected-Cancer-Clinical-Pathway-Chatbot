@@ -21,6 +21,7 @@ import {
 import { useChatStore, selectActiveConversation, type SolutionMode } from '@/stores/chatStore';
 import { cn, parseCitations } from '@/lib/utils';
 import type { Artifact, ChatMessage, ResponseType } from '@/types';
+import { DocumentViewer } from './DocumentViewer';
 
 const EXAMPLE_PROMPTS = {
   graphrag: [
@@ -85,8 +86,22 @@ export function ChatWindow() {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [documentViewerOpen, setDocumentViewerOpen] = useState(false);
+  const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>();
+  const [selectedSectionPath, setSelectedSectionPath] = useState<string | undefined>();
   
   const messages = activeConversation?.messages ?? [];
+  
+  const handleArtifactClick = (artifact: Artifact) => {
+    if (artifact.rule_id) {
+      setSelectedRuleId(artifact.rule_id);
+      setSelectedSectionPath(undefined);
+    } else if (artifact.section) {
+      setSelectedRuleId(undefined);
+      setSelectedSectionPath(artifact.section);
+    }
+    setDocumentViewerOpen(true);
+  };
   
   // Auto-scroll to bottom
   useEffect(() => {
@@ -136,7 +151,12 @@ export function ChatWindow() {
           <div className="max-w-3xl mx-auto py-8 px-4 space-y-6">
             <AnimatePresence mode="popLayout">
               {messages.map((message) => (
-                <MessageBubble key={message.id} message={message} showArtifacts={showArtifacts} />
+                <MessageBubble 
+                  key={message.id} 
+                  message={message} 
+                  showArtifacts={showArtifacts}
+                  onArtifactClick={handleArtifactClick}
+                />
               ))}
             </AnimatePresence>
             <div ref={messagesEndRef} />
@@ -147,8 +167,8 @@ export function ChatWindow() {
       {/* Input Area */}
       <div className="border-t border-surface-200 bg-surface-50 p-4">
         <div className="max-w-3xl mx-auto">
-          {/* Artifacts Toggle - Only show for RAG mode */}
-          {solutionMode === 'rag' && (
+          {/* Artifacts Toggle - Show for RAG and Custom modes */}
+          {(solutionMode === 'rag' || solutionMode === 'custom') && (
             <div className="flex items-center justify-center gap-2 mb-3">
               <span className="text-xs text-surface-500">Artifacts:</span>
               <button
@@ -229,6 +249,18 @@ export function ChatWindow() {
           </form>
         </div>
       </div>
+      
+      {/* Document Viewer Side Panel */}
+      <DocumentViewer
+        isOpen={documentViewerOpen}
+        onClose={() => {
+          setDocumentViewerOpen(false);
+          setSelectedRuleId(undefined);
+          setSelectedSectionPath(undefined);
+        }}
+        ruleId={selectedRuleId}
+        sectionPath={selectedSectionPath}
+      />
     </main>
   );
 }
@@ -312,7 +344,32 @@ function EmptyState({
   );
 }
 
-function MessageBubble({ message, showArtifacts }: { message: ChatMessage; showArtifacts: boolean }) {
+function MessageBubble({ 
+  message, 
+  showArtifacts,
+  onArtifactClick 
+}: { 
+  message: ChatMessage; 
+  showArtifacts: boolean;
+  onArtifactClick?: (artifact: Artifact) => void;
+}) {
+  const handleCitationClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('citation-link')) {
+      const ruleId = target.getAttribute('data-rule-id');
+      const section = target.getAttribute('data-section');
+      if (ruleId && onArtifactClick) {
+        onArtifactClick({
+          section: section || `NG12 > ${ruleId}`,
+          text: '',
+          source: 'NICE NG12',
+          source_url: 'https://www.nice.org.uk/guidance/ng12',
+          relevance_score: 0,
+          rule_id: ruleId,
+        });
+      }
+    }
+  };
   const isUser = message.role === 'user';
   const isTyping = message.isTyping;
   
@@ -380,6 +437,7 @@ function MessageBubble({ message, showArtifacts }: { message: ChatMessage; showA
                   dangerouslySetInnerHTML={{
                     __html: formatMessage(message.content),
                   }}
+                  onClick={handleCitationClick}
                 />
               )}
             </div>
@@ -403,7 +461,7 @@ function MessageBubble({ message, showArtifacts }: { message: ChatMessage; showA
               </div>
             )}
             
-            {/* Artifacts - Only for custom routes and when toggle is on */}
+            {/* Artifacts - Show when toggle is on (for RAG and Custom modes) */}
             <AnimatePresence mode="wait">
               {!isUser && showArtifacts && message.artifacts && message.artifacts.length > 0 && (
                 <motion.div
@@ -414,7 +472,10 @@ function MessageBubble({ message, showArtifacts }: { message: ChatMessage; showA
                   transition={{ duration: 0.3, ease: 'easeInOut' }}
                   style={{ overflow: 'hidden' }}
                 >
-                  <ArtifactsDisplay artifacts={message.artifacts} />
+                  <ArtifactsDisplay 
+                    artifacts={message.artifacts} 
+                    onArtifactClick={onArtifactClick}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -494,7 +555,13 @@ function formatMessage(content: string): string {
   return formatted;
 }
 
-function ArtifactsDisplay({ artifacts }: { artifacts: Artifact[] }) {
+function ArtifactsDisplay({ 
+  artifacts,
+  onArtifactClick 
+}: { 
+  artifacts: Artifact[];
+  onArtifactClick?: (artifact: Artifact) => void;
+}) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   
   return (
@@ -541,9 +608,19 @@ function ArtifactsDisplay({ artifacts }: { artifacts: Artifact[] }) {
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold text-surface-900">
+                    <button
+                      onClick={() => onArtifactClick?.(artifact)}
+                      className="text-sm font-semibold text-surface-900 hover:text-primary-600 transition-colors cursor-pointer text-left flex items-center gap-1"
+                      title={artifact.rule_id ? `View section ${artifact.rule_id} in document` : 'View section in document'}
+                    >
                       {artifact.section}
-                    </span>
+                      {artifact.rule_id && (
+                        <span className="text-xs text-primary-600 font-normal">
+                          ({artifact.rule_id})
+                        </span>
+                      )}
+                      <FileText className="w-3.5 h-3.5 text-primary-600" />
+                    </button>
                     <a
                       href={artifact.source_url}
                       target="_blank"

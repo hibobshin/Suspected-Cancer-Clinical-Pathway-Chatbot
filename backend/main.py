@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from services.rag_chat_service import get_rag_chat_service
 from services.graphrag_chat_service import get_graphrag_chat_service
 from services.custom_chat_service import get_custom_chat_service
+from services.custom_guideline_service import get_custom_guideline_service
 from config.config import Settings, get_settings
 from config.logging_config import configure_logging, get_logger, log_request_context
 from models.models import (
@@ -35,6 +36,8 @@ from models.models import (
     PathwayRouteType,
 )
 from services.pathway_routes import get_all_routes, get_route_by_type
+from pathlib import Path
+import re
 
 # Configure logging before anything else
 configure_logging()
@@ -405,6 +408,96 @@ def register_routes(app: FastAPI) -> None:
                 "X-Accel-Buffering": "no",
             },
         )
+    
+    @app.get("/api/v1/document/section", tags=["Document"])
+    async def get_document_section(
+        rule_id: str | None = None,
+        section_path: str | None = None,
+    ):
+        """
+        Get a document section with highlighting support.
+        
+        Returns the full document or a specific section, with information
+        about where to highlight based on rule_id or section_path.
+        
+        Args:
+            rule_id: Rule ID to highlight (e.g., "1.3.1")
+            section_path: Section path to find (e.g., "NG12 > Upper gastrointestinal tract cancers")
+        """
+        try:
+            # Load the document
+            doc_path = Path(__file__).parent.parent / "data" / "final.md"
+            if not doc_path.exists():
+                raise HTTPException(status_code=404, detail="Document not found")
+            
+            with open(doc_path, "r", encoding="utf-8") as f:
+                document_text = f.read()
+            
+            # If no rule_id or section_path, return full document
+            if not rule_id and not section_path:
+                return {
+                    "document": document_text,
+                    "highlight_rule_id": None,
+                    "highlight_section": None,
+                    "highlight_start": None,
+                    "highlight_end": None,
+                }
+            
+            # Find the section to highlight
+            highlight_start = None
+            highlight_end = None
+            highlight_section = None
+            
+            if rule_id:
+                # Find rule ID in document (e.g., "1.3.1" or "recommendation 1.3.1")
+                # Pattern: Look for numbered headings or explicit rule references
+                patterns = [
+                    rf"^#+\s+{re.escape(rule_id)}\b",  # Heading with rule ID
+                    rf"^#+\s+.*{re.escape(rule_id)}\b",  # Heading containing rule ID
+                    rf"\b{re.escape(rule_id)}\b",  # Any mention of rule ID
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, document_text, re.MULTILINE)
+                    if match:
+                        highlight_start = match.start()
+                        # Find the end of this section (next heading of same or higher level)
+                        remaining = document_text[highlight_start:]
+                        # Find next heading
+                        next_heading = re.search(r"^#+\s+", remaining[100:], re.MULTILINE)
+                        if next_heading:
+                            highlight_end = highlight_start + 100 + next_heading.start()
+                        else:
+                            highlight_end = highlight_start + min(2000, len(remaining))
+                        highlight_section = rule_id
+                        break
+            
+            elif section_path:
+                # Find section by path (e.g., "NG12 > Upper gastrointestinal tract cancers")
+                section_title = section_path.split(">")[-1].strip()
+                pattern = rf"^#+\s+{re.escape(section_title)}"
+                match = re.search(pattern, document_text, re.MULTILINE | re.IGNORECASE)
+                if match:
+                    highlight_start = match.start()
+                    remaining = document_text[highlight_start:]
+                    next_heading = re.search(r"^#+\s+", remaining[500:], re.MULTILINE)
+                    if next_heading:
+                        highlight_end = highlight_start + 500 + next_heading.start()
+                    else:
+                        highlight_end = highlight_start + min(5000, len(remaining))
+                    highlight_section = section_title
+            
+            return {
+                "document": document_text,
+                "highlight_rule_id": rule_id,
+                "highlight_section": highlight_section,
+                "highlight_start": highlight_start,
+                "highlight_end": highlight_end,
+            }
+            
+        except Exception as e:
+            logger.exception("Error fetching document section", error=str(e))
+            raise HTTPException(status_code=500, detail=f"Error fetching document: {str(e)}")
     
     @app.get("/api/v1/conversations/{conversation_id}", tags=["Chat"])
     async def get_conversation(conversation_id: str):

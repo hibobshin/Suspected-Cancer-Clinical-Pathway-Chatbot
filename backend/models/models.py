@@ -144,6 +144,7 @@ class Artifact(BaseModel):
         relevance_score: Relevance score for this chunk.
         chunk_id: Optional chunk identifier for tracking.
         char_count: Character count of the chunk text.
+        rule_id: Optional rule ID (e.g., "1.3.1") for section highlighting.
     """
     section: str = Field(..., description="Section name")
     text: str = Field(..., description="Guideline text chunk used")
@@ -153,8 +154,9 @@ class Artifact(BaseModel):
         description="URL to source document"
     )
     relevance_score: float = Field(default=0.0, description="Relevance score")
-    chunk_id: int | None = Field(default=None, description="Chunk identifier")
+    chunk_id: str | None = Field(default=None, description="Chunk identifier")
     char_count: int | None = Field(default=None, description="Character count of chunk")
+    rule_id: str | None = Field(default=None, description="Rule ID (e.g., '1.3.1') for section highlighting")
 
 
 class ChatResponse(BaseModel):

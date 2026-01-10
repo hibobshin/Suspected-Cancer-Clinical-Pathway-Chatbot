@@ -34,6 +34,8 @@ export interface Artifact {
   source: string;
   source_url: string;
   relevance_score: number;
+  chunk_id?: string;
+  rule_id?: string;
 }
 
 export interface ChatMessage {
