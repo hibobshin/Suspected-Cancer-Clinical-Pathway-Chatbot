@@ -19,17 +19,22 @@ from uuid import UUID, uuid4
 
 from openai import AsyncOpenAI, OpenAIError
 
-from config import Settings, get_settings
-from logging_config import get_logger
-from models import (
+from config.config import Settings, get_settings
+from config.logging_config import get_logger
+from models.models import (
+    Artifact,
     ChatMessage,
     ChatRequest,
     ChatResponse,
     Citation,
     ConversationContext,
     MessageRole,
+    PathwayRouteType,
     ResponseType,
 )
+from services.pathway_routes import get_route_system_prompt, PathwayRouteType as RouteType
+from services.graphrag_service import get_graphrag_service
+from services.guideline_service import get_guideline_service
 
 logger = get_logger(__name__)
 
@@ -119,11 +124,55 @@ class ChatService:
             "Processing chat message",
             conversation_id=str(conversation_id),
             message_length=len(request.message),
+            route_type=request.route_type.value if request.route_type else None,
         )
         
         try:
+            # Fetch context based on route type
+            graphrag_context = ""
+            guideline_artifacts: list[Artifact] = []
+            
+            logger.info(
+                "Route type check",
+                route_type=request.route_type.value if request.route_type else None,
+                is_graphrag=request.route_type == PathwayRouteType.GRAPH_RAG,
+            )
+            
+            if request.route_type == PathwayRouteType.GRAPH_RAG:
+                # Use GraphRAG for vendor solution
+                try:
+                    graphrag_service = get_graphrag_service()
+                    graphrag_context, _ = await graphrag_service.query_with_context(
+                        request.message, top_k=5
+                    )
+                    logger.info("GraphRAG context retrieved", context_length=len(graphrag_context))
+                except Exception as e:
+                    logger.warning("GraphRAG retrieval failed, continuing without context", error=str(e))
+            else:
+                # Use guideline retrieval for custom routes
+                try:
+                    guideline_service = get_guideline_service()
+                    artifacts_data = guideline_service.search(
+                        request.message,
+                        max_chunks=3,
+                        chunk_size=500,
+                    )
+                    guideline_artifacts = [
+                        Artifact(**artifact) for artifact in artifacts_data
+                    ]
+                    guideline_context = guideline_service.format_artifacts_for_llm(artifacts_data)
+                    logger.info(
+                        "Guideline artifacts retrieved",
+                        count=len(guideline_artifacts),
+                        context_length=len(guideline_context),
+                    )
+                    # Use guideline context instead of graphrag
+                    graphrag_context = guideline_context
+                except Exception as e:
+                    logger.warning("Guideline retrieval failed", error=str(e))
+            
             # Build conversation history
-            messages = self._build_messages(request)
+            messages = self._build_messages(request, graphrag_context=graphrag_context)
             
             # Check if API key is configured
             if not self.settings.deepseek_api_key:
@@ -163,6 +212,7 @@ class ChatService:
                 message=assistant_message,
                 response_type=response_type,
                 citations=citations,
+                artifacts=guideline_artifacts,  # Only populated for custom routes
                 follow_up_questions=follow_ups,
                 processing_time_ms=processing_time,
             )
@@ -220,14 +270,57 @@ class ChatService:
             "Processing streaming chat message",
             conversation_id=str(conversation_id),
             message_length=len(request.message),
+            route_type=request.route_type.value if request.route_type else None,
         )
         
         # Send initial event with conversation ID
         yield f"data: {json.dumps({'type': 'start', 'conversation_id': str(conversation_id)})}\n\n"
         
         try:
+            # Fetch context based on route type
+            graphrag_context = ""
+            guideline_artifacts: list[Artifact] = []
+            
+            logger.info(
+                "Route type check (stream)",
+                route_type=request.route_type.value if request.route_type else None,
+                is_graphrag=request.route_type == PathwayRouteType.GRAPH_RAG,
+            )
+            
+            if request.route_type == PathwayRouteType.GRAPH_RAG:
+                # Use GraphRAG for vendor solution
+                try:
+                    graphrag_service = get_graphrag_service()
+                    graphrag_context, _ = await graphrag_service.query_with_context(
+                        request.message, top_k=5
+                    )
+                    logger.info("GraphRAG context retrieved for stream", context_length=len(graphrag_context))
+                except Exception as e:
+                    logger.warning("GraphRAG retrieval failed in stream", error=str(e))
+            else:
+                # Use guideline retrieval for custom routes
+                try:
+                    guideline_service = get_guideline_service()
+                    artifacts_data = guideline_service.search(
+                        request.message,
+                        max_chunks=3,
+                        chunk_size=500,
+                    )
+                    guideline_artifacts = [
+                        Artifact(**artifact) for artifact in artifacts_data
+                    ]
+                    guideline_context = guideline_service.format_artifacts_for_llm(artifacts_data)
+                    logger.info(
+                        "Guideline artifacts retrieved for stream",
+                        count=len(guideline_artifacts),
+                        context_length=len(guideline_context),
+                    )
+                    graphrag_context = guideline_context
+                except Exception as e:
+                    logger.warning("Guideline retrieval failed in stream", error=str(e))
+            
             # Build conversation history
-            messages = self._build_messages(request)
+            messages = self._build_messages(request, graphrag_context=graphrag_context)
             
             # Check if API key is configured
             if not self.settings.deepseek_api_key:
@@ -270,7 +363,7 @@ class ChatService:
             )
             
             # Send completion event with metadata
-            yield f"data: {json.dumps({'type': 'done', 'response_type': response_type.value, 'citations': [c.model_dump() for c in citations], 'processing_time_ms': processing_time})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'response_type': response_type.value, 'citations': [c.model_dump() for c in citations], 'artifacts': [a.model_dump() for a in guideline_artifacts], 'processing_time_ms': processing_time})}\n\n"
             
         except OpenAIError as e:
             logger.error(
@@ -288,17 +381,37 @@ class ChatService:
             )
             yield f"data: {json.dumps({'type': 'error', 'message': 'An unexpected error occurred. Please try again.'})}\n\n"
     
-    def _build_messages(self, request: ChatRequest) -> list[dict]:
+    def _build_messages(
+        self, request: ChatRequest, graphrag_context: str = ""
+    ) -> list[dict]:
         """
         Build the message list for the LLM API call.
         
+        Uses route-specific system prompt based on request.route_type.
+        
         Args:
             request: The chat request.
+            graphrag_context: Optional context from GraphRAG retrieval.
             
         Returns:
             List of message dicts for the API.
         """
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # Get route-specific system prompt
+        try:
+            route_type = RouteType(request.route_type.value)
+            system_prompt = get_route_system_prompt(route_type)
+        except (ValueError, AttributeError):
+            # Fallback to default prompt
+            system_prompt = SYSTEM_PROMPT
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add GraphRAG context if available
+        if graphrag_context:
+            messages.append({
+                "role": "system",
+                "content": f"## Retrieved Context from Knowledge Graph\n\n{graphrag_context}"
+            })
         
         # Add conversation history if provided
         if request.context and request.context.messages:
@@ -356,7 +469,7 @@ class ChatService:
     
     def _extract_citations(self, response: str) -> list[Citation]:
         """
-        Extract QS124 citations from the response.
+        Extract citations from the response (NG12 or QS124).
         
         Args:
             response: The assistant's response text.
@@ -367,11 +480,23 @@ class ChatService:
         import re
         
         citations = []
-        # Pattern: [QS124-S1: Section Name]
-        pattern = r'\[QS124-(S\d+):\s*([^\]]+)\]'
-        matches = re.findall(pattern, response)
         
-        for statement_num, section in matches:
+        # Pattern: [NG12 1.3.1] or [NG12 1.3.1: Section Name]
+        ng12_pattern = r'\[NG12\s+([\d.]+)(?::\s*([^\]]+))?\]'
+        ng12_matches = re.findall(ng12_pattern, response)
+        
+        for section_ref, section_name in ng12_matches:
+            citations.append(Citation(
+                statement_id=f"NG12 {section_ref}",
+                section=section_name.strip() if section_name else f"Section {section_ref}",
+                text=None,
+            ))
+        
+        # Pattern: [QS124-S1: Section Name]
+        qs124_pattern = r'\[QS124-(S\d+):\s*([^\]]+)\]'
+        qs124_matches = re.findall(qs124_pattern, response)
+        
+        for statement_num, section in qs124_matches:
             citations.append(Citation(
                 statement_id=f"QS124-{statement_num}",
                 section=section.strip(),

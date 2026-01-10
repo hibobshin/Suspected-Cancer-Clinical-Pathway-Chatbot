@@ -1,0 +1,240 @@
+# QS124 Quality Statements Index
+# For retrieval and citation by internal Pathway Q&A Assistant
+# Source: NICE QS124 - Suspected Cancer (2016, updated 2017)
+
+statements:
+  - id: "QS124-S1"
+    title: "Direct Access to Diagnostic Tests"
+    short_description: "GPs have direct access to endoscopy, ultrasound, MRI, X-ray, and CT for suspected cancer"
+    key_terms:
+      - direct access
+      - diagnostic tests
+      - endoscopy
+      - ultrasound
+      - MRI
+      - X-ray
+      - CT
+      - imaging
+      - suspected cancer
+      - GP referral
+      - primary care
+      - diagnostic pathway
+    allowed_intents:
+      - overview
+      - eligibility
+      - action
+      - timing
+      - documentation
+      - escalation
+      - measures
+    citation_anchor: "QS124 Statement 1: Direct Access to Diagnostic Tests"
+    source_guidance:
+      - reference: "NICE NG12"
+        title: "Suspected cancer: recognition and referral"
+        year: "2015, updated 2021"
+    do_not_answer:
+      - treatment
+      - medication dosing
+      - diagnostic interpretation
+      - patient-specific advice
+      - imaging protocols
+      - radiology reading
+
+  - id: "QS124-S2"
+    title: "Urgent Direct Access Endoscopy for Oesophageal or Stomach Cancer"
+    short_description: "Urgent upper GI endoscopy within 2 weeks for symptoms of oesophageal/stomach cancer"
+    key_terms:
+      - oesophageal cancer
+      - stomach cancer
+      - gastric cancer
+      - upper GI endoscopy
+      - OGD
+      - dysphagia
+      - difficulty swallowing
+      - weight loss
+      - upper abdominal pain
+      - reflux
+      - dyspepsia
+      - urgent referral
+      - 2 week wait
+      - 2WW
+      - direct access endoscopy
+    allowed_intents:
+      - overview
+      - eligibility
+      - action
+      - timing
+      - documentation
+      - escalation
+      - measures
+    citation_anchor: "QS124 Statement 2: Urgent Direct Access Endoscopy for Oesophageal or Stomach Cancer"
+    source_guidance:
+      - reference: "NICE NG12"
+        title: "Suspected cancer: recognition and referral"
+        year: "2015, updated 2021"
+        recommendations:
+          - "1.2.1"
+          - "1.2.7"
+    do_not_answer:
+      - treatment
+      - medication dosing
+      - diagnostic interpretation
+      - patient-specific advice
+      - endoscopy findings interpretation
+      - biopsy results
+      - staging
+
+  - id: "QS124-S3"
+    title: "Testing for Blood in Faeces"
+    short_description: "FIT testing for adults with colorectal symptoms not meeting 2WW criteria"
+    key_terms:
+      - colorectal cancer
+      - bowel cancer
+      - colon cancer
+      - rectal cancer
+      - FIT
+      - faecal immunochemical test
+      - blood in faeces
+      - faecal occult blood
+      - FOB
+      - bowel symptoms
+      - change in bowel habit
+      - abdominal pain
+      - iron deficiency anaemia
+      - weight loss
+      - OC Sensor
+      - HM-JACKarc
+      - FOB Gold
+      - referral criteria
+    allowed_intents:
+      - overview
+      - eligibility
+      - action
+      - timing
+      - documentation
+      - escalation
+      - measures
+    citation_anchor: "QS124 Statement 3: Testing for Blood in Faeces"
+    source_guidance:
+      - reference: "NICE NG12"
+        title: "Suspected cancer: recognition and referral"
+        year: "2015, updated 2021"
+        recommendations:
+          - "1.3.4"
+      - reference: "NICE DG30"
+        title: "Quantitative faecal immunochemical tests to guide referral for colorectal cancer in primary care"
+        year: "2017"
+    do_not_answer:
+      - treatment
+      - medication dosing
+      - diagnostic interpretation
+      - patient-specific advice
+      - colonoscopy findings
+      - FIT threshold interpretation
+      - staging
+      - chemotherapy
+
+  - id: "QS124-S4"
+    title: "Encouraging Attendance at Cancer Services"
+    short_description: "Written information and discussion to encourage attendance at cancer referral appointments"
+    key_terms:
+      - patient information
+      - written information
+      - attendance
+      - appointment
+      - cancer referral
+      - patient communication
+      - cancer services
+      - 2WW appointment
+      - missed appointments
+      - DNA
+      - patient support
+      - referral letter
+      - patient leaflet
+    allowed_intents:
+      - overview
+      - eligibility
+      - action
+      - timing
+      - documentation
+      - escalation
+      - measures
+    citation_anchor: "QS124 Statement 4: Encouraging Attendance at Cancer Services"
+    source_guidance:
+      - reference: "NICE NG12"
+        title: "Suspected cancer: recognition and referral"
+        year: "2015, updated 2021"
+        recommendations:
+          - "1.14.1"
+          - "1.14.3"
+          - "1.14.5"
+    do_not_answer:
+      - treatment
+      - medication dosing
+      - diagnostic interpretation
+      - patient-specific advice
+      - prognosis
+      - cancer staging
+
+# Global retrieval configuration
+retrieval_config:
+  primary_document: "internal_pathway_sop.md"
+  fail_closed_topics:
+    - treatment protocols
+    - medication dosing
+    - chemotherapy regimens
+    - radiotherapy planning
+    - surgical procedures
+    - diagnostic interpretation
+    - pathology results
+    - radiology reading
+    - patient-specific clinical decisions
+    - prognosis
+    - staging decisions
+    - screening programme enrollment
+  
+  probe_for_info_when:
+    - age not specified (relevant for QS124-S2)
+    - symptom details missing
+    - rectal bleeding status unclear (relevant for QS124-S3)
+    - 2WW criteria assessment not documented
+    - weight loss not quantified
+    - symptom duration not specified
+  
+  citation_format: "[{statement_id}: {section_name}]"
+  
+  response_requirements:
+    - must_cite_source: true
+    - fail_closed_on_out_of_scope: true
+    - probe_for_ambiguity: true
+    - no_patient_specific_advice: true
+
+# Cross-reference index for related queries
+cross_references:
+  dysphagia:
+    - "QS124-S2"
+  upper_gi_symptoms:
+    - "QS124-S2"
+  bowel_symptoms:
+    - "QS124-S3"
+  colorectal_symptoms:
+    - "QS124-S3"
+  diagnostic_tests:
+    - "QS124-S1"
+    - "QS124-S2"
+    - "QS124-S3"
+  patient_communication:
+    - "QS124-S4"
+  referral_process:
+    - "QS124-S1"
+    - "QS124-S2"
+    - "QS124-S3"
+    - "QS124-S4"
+  timing_requirements:
+    - "QS124-S2"
+  quality_measures:
+    - "QS124-S1"
+    - "QS124-S2"
+    - "QS124-S3"
+    - "QS124-S4"
+

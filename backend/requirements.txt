@@ -27,8 +27,12 @@ python-jose[cryptography]
 # Environment
 python-dotenv
 
-# Vector Search (optional, for RAG)
-chromadb
+# Database
+python-arango
+
+# RAG Pipeline
+numpy
+scipy
 
 # Development
 pytest

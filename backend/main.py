@@ -19,16 +19,22 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from chat_service import ChatService, get_chat_service
-from config import Settings, get_settings
-from logging_config import configure_logging, get_logger, log_request_context
-from models import (
+from services.rag_chat_service import get_rag_chat_service
+from services.graphrag_chat_service import get_graphrag_chat_service
+from services.custom_chat_service import get_custom_chat_service
+from config.config import Settings, get_settings
+from config.logging_config import configure_logging, get_logger, log_request_context
+from models.models import (
     ChatRequest,
     ChatResponse,
     ErrorResponse,
     HealthResponse,
     HealthStatus,
+    PathwayRouteInfo,
+    PathwayRoutesResponse,
+    PathwayRouteType,
 )
+from services.pathway_routes import get_all_routes, get_route_by_type
 
 # Configure logging before anything else
 configure_logging()
@@ -191,40 +197,195 @@ def register_routes(app: FastAPI) -> None:
             checks=checks,
         )
     
-    @app.post("/api/v1/chat", response_model=ChatResponse, tags=["Chat"])
-    async def chat(
+    @app.get("/api/v1/routes", response_model=PathwayRoutesResponse, tags=["Routes"])
+    async def get_routes() -> PathwayRoutesResponse:
+        """
+        Get all available pathway routes.
+        
+        Returns the list of chatbot modes the user can toggle between:
+        - Cancer Recognition: Identify symptoms by cancer site
+        - Symptom Triage: Evaluate symptoms and determine investigations
+        - Referral Guidance: Determine correct referral pathway
+        """
+        routes = get_all_routes()
+        route_infos = [
+            PathwayRouteInfo(
+                route_type=PathwayRouteType(route.route_type.value),
+                name=route.name,
+                description=route.description,
+                welcome_message=route.welcome_message,
+                example_prompts=route.example_prompts,
+            )
+            for route in routes
+        ]
+        return PathwayRoutesResponse(routes=route_infos)
+    
+    @app.get("/api/v1/routes/{route_type}", response_model=PathwayRouteInfo, tags=["Routes"])
+    async def get_route(route_type: PathwayRouteType) -> PathwayRouteInfo:
+        """
+        Get details for a specific pathway route.
+        
+        Args:
+            route_type: The route type to retrieve.
+        """
+        from services.pathway_routes import PathwayRouteType as RouteType
+        
+        route = get_route_by_type(RouteType(route_type.value))
+        if not route:
+            raise HTTPException(status_code=404, detail="Route not found")
+        
+        return PathwayRouteInfo(
+            route_type=route_type,
+            name=route.name,
+            description=route.description,
+            welcome_message=route.welcome_message,
+            example_prompts=route.example_prompts,
+        )
+    
+    @app.post("/api/v1/chat/rag", response_model=ChatResponse, tags=["Chat"])
+    async def chat_rag(
         request: ChatRequest,
-        chat_service: ChatService = Depends(get_chat_service),
     ) -> ChatResponse:
         """
-        Send a message to the healthcare pathway assistant.
+        Send a message to the RAG (Retrieval-Augmented Generation) healthcare pathway assistant.
         
-        The assistant provides guidance on suspected cancer recognition and
-        referral based on NICE QS124 guidelines.
+        Uses NICE NG12 guideline retrieval with classic RAG pipeline and traceable artifacts.
+        Supports RAG routes: cancer_recognition, symptom_triage, referral_guidance.
         
-        **Behaviors:**
-        - **In-scope queries**: Grounded answers with citations
-        - **Under-specified queries**: Probing questions for missing info
-        - **Out-of-scope queries**: Polite refusal with alternatives
+        **Features:**
+        - Grounded in NICE NG12 guideline content
+        - Classic RAG: Bag-of-words, cosine similarity, reranking
+        - Returns traceable artifacts showing source text
+        - Route-specific system prompts
         
         **Example queries:**
         - "A 58-year-old patient has weight loss and heartburn. What referral pathway?"
         - "Should I order a FIT test for abdominal pain?"
         - "What documentation is needed for a 2WW referral?"
         """
-        logger.info("Chat request received", message_preview=request.message[:100])
+        logger.info("RAG chat request received", message_preview=request.message[:100])
         
-        response = await chat_service.process_message(request)
+        rag_service = get_rag_chat_service()
+        response = await rag_service.process_message(request)
+        
+        return response
+    
+    @app.post("/api/v1/chat/rag/stream", tags=["Chat"])
+    async def chat_rag_stream(
+        request: ChatRequest,
+    ) -> StreamingResponse:
+        """
+        Stream a response from the RAG healthcare pathway assistant.
+        
+        Uses NICE NG12 guideline retrieval with classic RAG pipeline and traceable artifacts.
+        """
+        logger.info("RAG chat stream request received", message_preview=request.message[:100])
+        
+        rag_service = get_rag_chat_service()
+        return StreamingResponse(
+            rag_service.process_message_stream(request),
+            media_type="text/event-stream",
+        )
+    
+    @app.post("/api/v1/chat/custom", response_model=ChatResponse, tags=["Chat"])
+    async def chat_custom(
+        request: ChatRequest,
+    ) -> ChatResponse:
+        """
+        Send a message to the custom healthcare pathway assistant.
+        
+        Custom implementation with flexible configuration.
+        """
+        logger.info("Custom chat request received", message_preview=request.message[:100])
+        
+        custom_service = get_custom_chat_service()
+        response = await custom_service.process_message(request)
+        
+        return response
+    
+    @app.post("/api/v1/chat/custom/stream", tags=["Chat"])
+    async def chat_custom_stream(
+        request: ChatRequest,
+    ) -> StreamingResponse:
+        """
+        Stream a response from the custom healthcare pathway assistant.
+        """
+        logger.info("Custom chat stream request received", message_preview=request.message[:100])
+        
+        custom_service = get_custom_chat_service()
+        return StreamingResponse(
+            custom_service.process_message_stream(request),
+            media_type="text/event-stream",
+        )
+    
+    @app.post("/api/v1/chat/graphrag", response_model=ChatResponse, tags=["Chat"])
+    async def chat_graphrag(
+        request: ChatRequest,
+    ) -> ChatResponse:
+        """
+        Send a message to the GraphRAG-powered healthcare assistant.
+        
+        Uses ArangoDB GraphRAG retriever for context-aware responses from knowledge graph.
+        
+        **Features:**
+        - Knowledge graph retrieval
+        - Entity and relationship queries
+        - Community summaries
+        
+        **Example queries:**
+        - "What entities relate to colorectal cancer?"
+        - "Show connections between FIT testing and referral"
+        - "What does the graph say about 2WW pathways?"
+        """
+        logger.info("GraphRAG chat request received", message_preview=request.message[:100])
+        
+        graphrag_service = get_graphrag_chat_service()
+        response = await graphrag_service.process_message(request)
+        
+        return response
+    
+    @app.post("/api/v1/chat/graphrag/stream", tags=["Chat"])
+    async def chat_graphrag_stream(
+        request: ChatRequest,
+    ) -> StreamingResponse:
+        """
+        Stream a response from the GraphRAG-powered healthcare assistant.
+        
+        Uses ArangoDB GraphRAG retriever for context-aware responses.
+        """
+        logger.info("GraphRAG chat stream request received", message_preview=request.message[:100])
+        
+        graphrag_service = get_graphrag_chat_service()
+        return StreamingResponse(
+            graphrag_service.process_message_stream(request),
+            media_type="text/event-stream",
+        )
+    
+    # Legacy endpoint for backwards compatibility (routes to RAG)
+    @app.post("/api/v1/chat", response_model=ChatResponse, tags=["Chat"])
+    async def chat(
+        request: ChatRequest,
+    ) -> ChatResponse:
+        """
+        Legacy endpoint - routes to RAG chat service.
+        
+        Use /api/v1/chat/rag, /api/v1/chat/custom, or /api/v1/chat/graphrag instead.
+        """
+        logger.info("Legacy chat request received, routing to RAG", message_preview=request.message[:100])
+        
+        rag_service = get_rag_chat_service()
+        response = await rag_service.process_message(request)
         
         return response
     
     @app.post("/api/v1/chat/stream", tags=["Chat"])
     async def chat_stream(
         request: ChatRequest,
-        chat_service: ChatService = Depends(get_chat_service),
     ) -> StreamingResponse:
         """
-        Send a message and receive a streaming response.
+        Legacy streaming endpoint - routes to custom chat service.
+        
+        Use /api/v1/chat/custom/stream or /api/v1/chat/graphrag/stream instead.
         
         Returns a Server-Sent Events (SSE) stream with the following event types:
         - `start`: Initial event with conversation_id
@@ -232,10 +393,11 @@ def register_routes(app: FastAPI) -> None:
         - `done`: Final event with response_type and citations
         - `error`: Error event if something goes wrong
         """
-        logger.info("Streaming chat request received", message_preview=request.message[:100])
+        logger.info("Legacy streaming chat request received, routing to RAG", message_preview=request.message[:100])
         
+        rag_service = get_rag_chat_service()
         return StreamingResponse(
-            chat_service.process_message_stream(request),
+            rag_service.process_message_stream(request),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

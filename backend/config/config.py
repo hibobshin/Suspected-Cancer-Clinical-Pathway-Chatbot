@@ -51,6 +51,22 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(default=2048, description="Max tokens per response")
     llm_temperature: float = Field(default=1.3, description="Model temperature")
     
+    # ArangoDB
+    arango_host: str = Field(default="http://localhost:8529", description="ArangoDB host URL")
+    arango_username: str = Field(default="root", description="ArangoDB username")
+    arango_password: str = Field(default="", description="ArangoDB password")
+    arango_database: str = Field(default="ary_db", description="ArangoDB database name")
+    
+    # GraphRAG
+    graphrag_retriever_url: str = Field(
+        default="https://fkd0akd3.rnd.pilot.arango.ai:8529/graphrag/retriever/dcajr/v1/graphrag-query",
+        description="ArangoDB GraphRAG retriever query endpoint. Use external URL for local dev, or internal .svc URL if running in Kubernetes cluster."
+    )
+    graphrag_project_name: str = Field(
+        default="test",
+        description="GraphRAG project name"
+    )
+    
     # Rate Limiting
     rate_limit_requests: int = Field(default=100, description="Requests per window")
     rate_limit_window_seconds: int = Field(default=60, description="Rate limit window")
@@ -73,6 +89,8 @@ class Settings(BaseSettings):
         # Redact sensitive values
         if config.get("deepseek_api_key"):
             config["deepseek_api_key"] = "***REDACTED***"
+        if config.get("arango_password"):
+            config["arango_password"] = "***REDACTED***"
         return config
 
 

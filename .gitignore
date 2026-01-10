@@ -79,7 +79,10 @@ frontend/.vite/
 *.temp
 .cache/
 
+# RAG Cache (chunks and vectors)
+data/.cache/
+
 # Large files
 *.pdf
 data/*.pdf
-data/
+# Don't ignore data/ directory itself, just PDFs and cache

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -7,8 +8,12 @@ import {
   Stethoscope,
   Home,
   Settings,
+  Database,
+  Sparkles,
+  Brain,
+  X,
 } from 'lucide-react';
-import { useChatStore } from '@/stores/chatStore';
+import { useChatStore, type SolutionMode } from '@/stores/chatStore';
 import { formatDate, cn, truncate } from '@/lib/utils';
 
 export function ChatSidebar() {
@@ -18,7 +23,19 @@ export function ChatSidebar() {
     createConversation,
     setActiveConversation,
     deleteConversation,
+    setSolutionMode,
   } = useChatStore();
+  const [showModeDialog, setShowModeDialog] = useState(false);
+  
+  const handleNewConversation = () => {
+    setShowModeDialog(true);
+  };
+  
+  const handleModeSelect = (mode: SolutionMode) => {
+    setSolutionMode(mode);
+    createConversation();
+    setShowModeDialog(false);
+  };
   
   return (
     <aside className="w-72 h-full flex flex-col bg-surface-900 text-white">
@@ -38,7 +55,7 @@ export function ChatSidebar() {
       {/* New Chat Button */}
       <div className="p-3">
         <button
-          onClick={() => createConversation()}
+          onClick={handleNewConversation}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-800 hover:bg-surface-700 border border-surface-700 hover:border-surface-600 transition-all group"
         >
           <Plus className="w-5 h-5 text-surface-400 group-hover:text-white transition-colors" />
@@ -47,6 +64,103 @@ export function ChatSidebar() {
           </span>
         </button>
       </div>
+      
+      {/* Mode Selection Dialog */}
+      <AnimatePresence>
+        {showModeDialog && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowModeDialog(false)}
+              className="fixed inset-0 bg-black/50 z-40"
+            />
+            {/* Dialog */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              onClick={() => setShowModeDialog(false)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-display font-bold text-surface-900">
+                    Choose Conversation Mode
+                  </h3>
+                  <button
+                    onClick={() => setShowModeDialog(false)}
+                    className="p-2 hover:bg-surface-100 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-surface-500" />
+                  </button>
+                </div>
+                
+                <div className="space-y-3">
+                  {/* GraphRAG Option */}
+                  <button
+                    onClick={() => handleModeSelect('graphrag')}
+                    className="w-full text-left p-4 rounded-xl border-2 border-surface-200 hover:border-violet-300 hover:bg-violet-50 transition-all group"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+                        <Database className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-surface-900 mb-1">GraphRAG</h4>
+                        <p className="text-sm text-surface-600">
+                          Knowledge graph queries powered by ArangoDB GraphRAG
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                  
+                  {/* RAG Option */}
+                  <button
+                    onClick={() => handleModeSelect('rag')}
+                    className="w-full text-left p-4 rounded-xl border-2 border-surface-200 hover:border-primary-300 hover:bg-primary-50 transition-all group"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center flex-shrink-0">
+                        <Sparkles className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-surface-900 mb-1">RAG</h4>
+                        <p className="text-sm text-surface-600">
+                          Classic RAG with NICE NG12 guidelines and traceable artifacts
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                  
+                  {/* Custom Option */}
+                  <button
+                    onClick={() => handleModeSelect('custom')}
+                    className="w-full text-left p-4 rounded-xl border-2 border-surface-200 hover:border-blue-300 hover:bg-blue-50 transition-all group"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0">
+                        <Brain className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-surface-900 mb-1">Custom</h4>
+                        <p className="text-sm text-surface-600">
+                          Flexible custom implementation for specialized use cases
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
       
       {/* Conversations List */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 no-scrollbar">

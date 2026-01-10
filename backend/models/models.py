@@ -20,6 +20,15 @@ class MessageRole(str, Enum):
     SYSTEM = "system"
 
 
+class PathwayRouteType(str, Enum):
+    """Available pathway route types for the chatbot."""
+    CANCER_RECOGNITION = "cancer_recognition"
+    SYMPTOM_TRIAGE = "symptom_triage"
+    REFERRAL_GUIDANCE = "referral_guidance"
+    GRAPH_RAG = "graph_rag"
+    CUSTOM = "custom"
+
+
 class ChatMessage(BaseModel):
     """
     A single message in a chat conversation.
@@ -66,6 +75,7 @@ class ChatRequest(BaseModel):
     
     Attributes:
         message: The user's current message.
+        route_type: The pathway route to use for this request.
         conversation_id: Optional ID to continue an existing conversation.
         context: Optional conversation context with history.
     """
@@ -74,6 +84,10 @@ class ChatRequest(BaseModel):
         min_length=1,
         max_length=5000,
         description="User message to the assistant"
+    )
+    route_type: PathwayRouteType = Field(
+        default=PathwayRouteType.CANCER_RECOGNITION,
+        description="Pathway route type for this chat"
     )
     conversation_id: UUID | None = Field(
         default=None,
@@ -116,6 +130,33 @@ class Citation(BaseModel):
     text: str | None = Field(default=None, description="Cited text excerpt")
 
 
+class Artifact(BaseModel):
+    """
+    Source artifact showing the guideline chunk used for traceability.
+    
+    These artifacts are the actual chunks retrieved from the RAG pipeline.
+    
+    Attributes:
+        section: The guideline section name.
+        text: The actual guideline text chunk used.
+        source: Source identifier (e.g., "NICE NG12").
+        source_url: URL to the source document.
+        relevance_score: Relevance score for this chunk.
+        chunk_id: Optional chunk identifier for tracking.
+        char_count: Character count of the chunk text.
+    """
+    section: str = Field(..., description="Section name")
+    text: str = Field(..., description="Guideline text chunk used")
+    source: str = Field(default="NICE NG12", description="Source identifier")
+    source_url: str = Field(
+        default="https://www.nice.org.uk/guidance/ng12",
+        description="URL to source document"
+    )
+    relevance_score: float = Field(default=0.0, description="Relevance score")
+    chunk_id: int | None = Field(default=None, description="Chunk identifier")
+    char_count: int | None = Field(default=None, description="Character count of chunk")
+
+
 class ChatResponse(BaseModel):
     """
     Response from the healthcare assistant.
@@ -125,6 +166,7 @@ class ChatResponse(BaseModel):
         message: The assistant's response message.
         response_type: Classification of the response type.
         citations: Any guideline citations included.
+        artifacts: Source artifacts showing guideline text used (for traceability).
         follow_up_questions: Suggested follow-up questions.
         processing_time_ms: Time taken to generate the response.
     """
@@ -132,6 +174,10 @@ class ChatResponse(BaseModel):
     message: str = Field(..., description="Assistant response")
     response_type: ResponseType = Field(..., description="Type of response")
     citations: list[Citation] = Field(default_factory=list, description="Cited references")
+    artifacts: list[Artifact] = Field(
+        default_factory=list,
+        description="Source artifacts showing guideline text used (custom routes only)"
+    )
     follow_up_questions: list[str] = Field(
         default_factory=list,
         max_length=5,
@@ -180,3 +226,30 @@ class ErrorResponse(BaseModel):
     details: dict | None = Field(default=None, description="Additional details")
     request_id: str | None = Field(default=None, description="Request ID for tracing")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Error timestamp")
+
+
+class PathwayRouteInfo(BaseModel):
+    """
+    Information about a pathway route.
+    
+    Attributes:
+        route_type: The route type identifier.
+        name: Human-readable name.
+        description: Brief description of what this route does.
+        welcome_message: Initial message shown to users.
+        example_prompts: Example questions for this route.
+    """
+    route_type: PathwayRouteType = Field(..., description="Route type identifier")
+    name: str = Field(..., description="Route name")
+    description: str = Field(..., description="Route description")
+    welcome_message: str = Field(..., description="Welcome message")
+    example_prompts: list[str] = Field(default_factory=list, description="Example prompts")
+
+
+class PathwayRoutesResponse(BaseModel):
+    """Response containing all available pathway routes."""
+    routes: list[PathwayRouteInfo] = Field(..., description="Available routes")
+    current_route: PathwayRouteType | None = Field(
+        default=None,
+        description="Currently selected route"
+    )

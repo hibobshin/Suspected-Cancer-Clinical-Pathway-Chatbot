@@ -16,7 +16,7 @@ from typing import Any
 import structlog
 from structlog.types import Processor
 
-from config import get_settings
+from config.config import get_settings
 
 
 def configure_logging() -> None:

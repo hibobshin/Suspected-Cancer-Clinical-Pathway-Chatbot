@@ -5,9 +5,12 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { ChatMessage, Conversation, ResponseType, Citation } from '@/types';
+import type { Artifact, ChatMessage, Conversation, ResponseType, Citation, PathwayRouteType } from '@/types';
 import { generateId } from '@/lib/utils';
 import { sendChatMessageStream, type StreamEvent } from '@/lib/api';
+
+// Solution modes - selected when creating a new conversation
+export type SolutionMode = 'graphrag' | 'rag' | 'custom';
 
 interface ChatState {
   // State
@@ -15,6 +18,9 @@ interface ChatState {
   activeConversationId: string | null;
   isLoading: boolean;
   error: string | null;
+  solutionMode: SolutionMode;
+  routeType: PathwayRouteType;
+  showArtifacts: boolean;
   
   // Actions
   createConversation: () => string;
@@ -23,6 +29,9 @@ interface ChatState {
   sendMessage: (content: string) => Promise<void>;
   stopGeneration: () => void;
   clearError: () => void;
+  setSolutionMode: (mode: SolutionMode) => void;
+  setRouteType: (type: PathwayRouteType) => void;
+  setShowArtifacts: (show: boolean) => void;
 }
 
 // Store abort controller outside of state (not serializable)
@@ -45,6 +54,7 @@ function createMessage(
   extras?: {
     response_type?: ResponseType;
     citations?: Citation[];
+    artifacts?: Artifact[];
     isTyping?: boolean;
   }
 ): ChatMessage {
@@ -74,6 +84,9 @@ export const useChatStore = create<ChatState>()(
       activeConversationId: null,
       isLoading: false,
       error: null,
+      solutionMode: 'rag' as SolutionMode, // Default to RAG
+      routeType: 'cancer_recognition' as PathwayRouteType, // Default custom route
+      showArtifacts: true, // Show artifacts by default
       
       // Create a new conversation
       createConversation: () => {
@@ -179,9 +192,35 @@ export const useChatStore = create<ChatState>()(
         
         let fullContent = '';
         
+        // Determine endpoint based on solution mode
+        let { solutionMode, routeType } = get();
+        
+        // Map solution mode to endpoint
+        let endpoint: 'rag' | 'graphrag' | 'custom';
+        let effectiveRouteType = routeType;
+        
+        if (solutionMode === 'graphrag') {
+          endpoint = 'graphrag';
+          effectiveRouteType = 'graph_rag';
+        } else if (solutionMode === 'rag') {
+          endpoint = 'rag';
+          // Keep the current routeType (cancer_recognition, symptom_triage, etc.)
+        } else { // custom
+          endpoint = 'custom';
+          effectiveRouteType = 'custom';
+        }
+        
+        console.log('[Chat] Sending message with route:', {
+          solutionMode,
+          routeType,
+          effectiveRouteType,
+          endpoint,
+        });
+        
         await sendChatMessageStream(
           {
             message: content,
+            route_type: effectiveRouteType,
             conversation_id: conversationId,
             context: previousMessages.length > 0
               ? {
@@ -212,6 +251,8 @@ export const useChatStore = create<ChatState>()(
             console.log('[Chat] Stream completed:', {
               type: event.response_type,
               citations: event.citations?.length ?? 0,
+              artifacts: event.artifacts?.length ?? 0,
+              artifacts_data: event.artifacts,
               time_ms: event.processing_time_ms,
             });
             
@@ -229,6 +270,7 @@ export const useChatStore = create<ChatState>()(
                           isTyping: false,
                           response_type: event.response_type as ResponseType,
                           citations: event.citations,
+                          artifacts: event.artifacts,
                         }
                       : m
                   ),
@@ -264,6 +306,7 @@ export const useChatStore = create<ChatState>()(
             }));
           },
           currentAbortController.signal,
+          endpoint,
         );
         
         // Clear abort controller
@@ -284,6 +327,29 @@ export const useChatStore = create<ChatState>()(
       clearError: () => {
         set({ error: null });
       },
+      
+      // Set solution mode (vendor vs custom)
+      setSolutionMode: (mode: SolutionMode) => {
+        console.log('[Chat] Solution mode:', mode);
+        // When switching to custom, ensure routeType is a custom route
+        const currentRouteType = get().routeType;
+        if (mode === 'custom' && currentRouteType === 'graph_rag') {
+          set({ solutionMode: mode, routeType: 'cancer_recognition' });
+        } else {
+          set({ solutionMode: mode });
+        }
+      },
+      
+      // Set route type for custom mode
+      setRouteType: (type: PathwayRouteType) => {
+        console.log('[Chat] Route type:', type);
+        set({ routeType: type });
+      },
+      
+      // Toggle artifact visibility
+      setShowArtifacts: (show: boolean) => {
+        set({ showArtifacts: show });
+      },
     }),
     {
       name: 'qualified-health-chat',
@@ -294,6 +360,9 @@ export const useChatStore = create<ChatState>()(
           messages: c.messages.filter(m => !m.isTyping),
         })),
         activeConversationId: state.activeConversationId,
+        solutionMode: state.solutionMode,
+        routeType: state.routeType,
+        showArtifacts: state.showArtifacts,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
