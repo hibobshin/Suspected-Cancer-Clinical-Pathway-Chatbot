@@ -104,6 +104,8 @@ export const useChatStore = create<ChatState>()(
         set(state => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
+          error: null, // Clear any previous errors
+          isLoading: false, // Reset loading state
         }));
         
         console.log('[Chat] Created new conversation:', id);

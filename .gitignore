@@ -86,3 +86,13 @@ data/.cache/
 *.pdf
 data/*.pdf
 # Don't ignore data/ directory itself, just PDFs and cache
+
+# Jupyter Notebooks (GraphRAG reference notebooks)
+*.ipynb
+*.ipynb_checkpoints/
+ArangoGraphRAG*.ipynb
+
+# GraphRAG cache and output files
+.graphrag/
+graphrag_cache/
+*.graphrag

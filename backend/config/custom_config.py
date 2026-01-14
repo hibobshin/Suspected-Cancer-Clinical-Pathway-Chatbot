@@ -5,6 +5,7 @@ All settings are configurable via environment variables with sensible defaults.
 This module is separate from the main config to keep the custom pipeline discrete.
 """
 
+import hashlib
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -38,8 +39,8 @@ class CustomPipelineSettings(BaseSettings):
     
     # Embedding Model
     embedding_model: str = Field(
-        default="all-MiniLM-L6-v2",
-        description="Sentence transformer model for embeddings"
+        default="text-embedding-3-small",
+        description="OpenAI embedding model name (e.g., text-embedding-3-small, text-embedding-3-large)"
     )
     
     # BM25 Parameters
@@ -122,10 +123,10 @@ class CustomPipelineSettings(BaseSettings):
         description="LLM temperature for field extraction (low for determinism)"
     )
     llm_temperature_response: float = Field(
-        default=0.3,  # Lower temperature for more deterministic, grounded responses
+        default=1.0,  # Balanced temperature for general conversation and data analysis
         ge=0.0,
         le=2.0,
-        description="LLM temperature for final response generation (lower = more deterministic)"
+        description="LLM temperature for final response generation (1.0 = balanced, 1.3 = more conversational)"
     )
     
     # Confidence Calculation Weights
@@ -216,6 +217,81 @@ class CustomPipelineSettings(BaseSettings):
         description="Keywords that trigger safety gate red flags"
     )
     
+    # Configuration Versioning
+    config_version: str = Field(
+        default="1.0.0",
+        description="Configuration version for traceability in logs"
+    )
+    
+    # Document Preprocessing Parameters
+    document_path: str = Field(
+        default="data/final.md",
+        description="Path to the NG12 guideline document"
+    )
+    
+    # Section/Subsection Selection Parameters
+    max_sections_to_select: int = Field(
+        default=5,
+        ge=1,
+        le=15,
+        description="Maximum number of sections to select in Node 1"
+    )
+    max_subsections_to_select: int = Field(
+        default=20,
+        ge=1,
+        le=50,
+        description="Maximum number of subsections to select in Node 1"
+    )
+    
+    # Search Parameters
+    top_k_per_section: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Top K subsections to return per section in Node 2"
+    )
+    search_bm25_weight: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Weight for BM25 score in search (cosine weight = 1 - this)"
+    )
+    selected_subsection_boost: float = Field(
+        default=1.5,
+        ge=1.0,
+        le=3.0,
+        description="Multiplier boost for subsections selected by Node 1"
+    )
+    
+    # Reranking Parameters
+    top_n_chunks: int = Field(
+        default=10,
+        ge=1,
+        le=30,
+        description="Top N chunks to return after reranking"
+    )
+    rerank_bm25_weight: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Weight for BM25 score in reranking (cosine weight = 1 - this)"
+    )
+    
+    # Input Validation Parameters
+    min_query_length: int = Field(
+        default=3,
+        ge=1,
+        description="Minimum query length after trimming"
+    )
+    
+    # LLM Parameters for Section Selection
+    llm_temperature_section_selection: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=2.0,
+        description="LLM temperature for section/subsection selection (low for determinism)"
+    )
+    
     def validate_weights(self) -> bool:
         """Validate that confidence weights sum to approximately 1.0."""
         total = (
@@ -227,6 +303,28 @@ class CustomPipelineSettings(BaseSettings):
             self.confidence_weight_consensus
         )
         return 0.95 <= total <= 1.05  # Allow small floating point differences
+    
+    def get_config_hash(self) -> str:
+        """
+        Compute a hash of key configuration values for versioning.
+        
+        This provides a deterministic version identifier that changes when
+        configuration values change, useful for traceability.
+        """
+        # Hash key configuration values
+        key_values = {
+            "confidence_threshold": self.confidence_threshold,
+            "embedding_model": self.embedding_model,
+            "max_retrieved_chunks": self.max_retrieved_chunks,
+            "max_sections_to_select": self.max_sections_to_select,
+            "max_subsections_to_select": self.max_subsections_to_select,
+            "top_k_per_section": self.top_k_per_section,
+            "top_n_chunks": self.top_n_chunks,
+            "search_bm25_weight": self.search_bm25_weight,
+            "rerank_bm25_weight": self.rerank_bm25_weight,
+        }
+        config_str = str(sorted(key_values.items()))
+        return hashlib.md5(config_str.encode()).hexdigest()[:8]
     
     def get_safe_config_dict(self) -> dict:
         """Return configuration dict with sensitive values redacted for logging."""

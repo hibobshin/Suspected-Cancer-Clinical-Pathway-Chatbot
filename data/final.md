@@ -1400,6 +1400,33 @@ See also the section on abdominal symptoms for abdominal or pelvic pain.
   </tbody>
 </table>
 
+
+
+
+## Respiratory symptoms
+
+### Chest Infection
+
+<table>
+  <thead>
+    <tr>
+        <th>Symptom and specific features</th>
+        <th>Possible cancer</th>
+        <th>Recommendation</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+        <td>Chest infection (persistent or reoccurent), 40 and over </td>
+<td>Lung</td>
+<td>Consider an urgent chest X-ray (to be done within 2 weeks) [1.1.3]</td>
+    </tr>
+
+
+  </tbody>
+</table>
+
+
 ### Chest pain
 
 <table>
@@ -1429,7 +1456,6 @@ See also the section on abdominal symptoms for abdominal or pelvic pain.
   </tbody>
 </table>
 
-## Respiratory symptoms
 
 ### Cough
 

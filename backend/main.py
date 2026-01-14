@@ -409,6 +409,29 @@ def register_routes(app: FastAPI) -> None:
             },
         )
     
+    @app.get("/api/v1/document/final", tags=["Document"])
+    async def get_final_document():
+        """
+        Get the full final.md document for custom mode document viewer.
+        
+        Returns the complete NICE NG12 guideline in markdown format.
+        """
+        from fastapi.responses import PlainTextResponse
+        
+        try:
+            doc_path = Path(__file__).parent.parent / "data" / "final.md"
+            if not doc_path.exists():
+                raise HTTPException(status_code=404, detail="Document not found")
+            
+            with open(doc_path, "r", encoding="utf-8") as f:
+                document_text = f.read()
+            
+            return PlainTextResponse(content=document_text, media_type="text/plain")
+            
+        except Exception as e:
+            logger.exception("Error fetching final document", error=str(e))
+            raise HTTPException(status_code=500, detail=f"Error fetching document: {str(e)}")
+    
     @app.get("/api/v1/document/section", tags=["Document"])
     async def get_document_section(
         rule_id: str | None = None,

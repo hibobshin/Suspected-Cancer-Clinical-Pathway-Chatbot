@@ -9,27 +9,28 @@ export function ChatPage() {
   const navigate = useNavigate();
   const { setActiveConversation, activeConversationId, conversations } = useChatStore();
   
-  // Sync URL with active conversation
+  // Single effect to handle URL <-> state synchronization
   useEffect(() => {
+    // If there's a conversationId in the URL
     if (conversationId) {
+      // Check if this conversation exists
       const exists = conversations.some(c => c.id === conversationId);
       if (exists) {
-        setActiveConversation(conversationId);
+        // Only update state if it's different
+        if (activeConversationId !== conversationId) {
+          setActiveConversation(conversationId);
+        }
       } else {
         // Conversation not found, redirect to chat root
         navigate('/chat', { replace: true });
       }
+    } else {
+      // No conversationId in URL, but we have an active conversation
+      if (activeConversationId) {
+        navigate(`/chat/${activeConversationId}`, { replace: true });
+      }
     }
-  }, [conversationId, conversations, setActiveConversation, navigate]);
-  
-  // Update URL when active conversation changes
-  useEffect(() => {
-    if (activeConversationId && activeConversationId !== conversationId) {
-      navigate(`/chat/${activeConversationId}`, { replace: true });
-    } else if (!activeConversationId && conversationId) {
-      navigate('/chat', { replace: true });
-    }
-  }, [activeConversationId, conversationId, navigate]);
+  }, [conversationId, activeConversationId, conversations, setActiveConversation, navigate]);
   
   return (
     <div className="h-screen flex bg-surface-50">

@@ -24,118 +24,100 @@ class GraphRAGService:
     
     def __init__(self):
         self.settings = get_settings()
-        # GraphRAG retriever endpoint
-        self.retriever_url = self.settings.graphrag_retriever_url
+        # Exact notebook code: SERVER_URL = os.environ['ARANGO_DEPLOYMENT_ENDPOINT']
+        self.server_url = self.settings.arango_deployment_endpoint.rstrip('/')
+        
+        # Service ID from settings
+        self.service_id = self.settings.graphrag_service_id
+        
+        # Build endpoint exactly like notebook: f"/graphrag/retriever/{retriever_service_id}/v1/graphrag-query"
+        # Notebook uses: send_request(f"/graphrag/retriever/{retriever_service_id}/v1/graphrag-query", myBody, "POST")
+        # And send_request constructs: url = f"{SERVER_URL}{suffix}"
+        self.retriever_endpoint = f"{self.server_url}/graphrag/retriever/{self.service_id}/v1/graphrag-query"
+        
         self._client: httpx.AsyncClient | None = None
         self._jwt_token: str | None = None
     
     async def _get_jwt_token(self) -> str | None:
         """Get JWT token from ArangoDB authentication endpoint.
         
-        According to ArangoDB AI Suite docs, authentication should use:
-        1. POST to /_open/auth with username/password
-        2. Get JWT token from response
-        3. Use JWT as Bearer token in Authorization header
+        Exact code from notebook: ArangoGraphRAG_Advanced.ipynb
         """
         if self._jwt_token:
             return self._jwt_token
         
+        # Exact notebook code: auth_url = f"{SERVER_URL}/_open/auth"
+        auth_url = f"{self.server_url}/_open/auth"
+        
+        # Validate credentials are set
+        if not self.settings.arango_username:
+            raise ValueError("ArangoDB username is not set. Please set ARANGODB_USERNAME in environment variables.")
+        if not self.settings.arango_password:
+            raise ValueError("ArangoDB password is not set. Please set ARANGODB_PASSWORD in environment variables.")
+        
+        payload = {
+            "username": self.settings.arango_username,
+            "password": self.settings.arango_password
+        }
+        
         try:
-            # Extract base URL from retriever endpoint
-            # Handle both internal .svc and external URLs
-            if "://" in self.retriever_url:
-                base_url = self.retriever_url.split("/graphrag")[0]
-                if not base_url:
-                    base_url = self.retriever_url.split("/ai")[0]
-            else:
-                base_url = self.settings.arango_host
-            
-            # ArangoDB AI Suite uses /_open/auth endpoint
-            auth_url = f"{base_url}/_open/auth"
-            
-            auth_client = httpx.AsyncClient(timeout=10.0, verify=True)
-            
-            # Disable SSL for internal .svc endpoints
-            if ".svc" in auth_url or "deployment.arangodb-platform" in auth_url:
-                auth_client = httpx.AsyncClient(timeout=10.0, verify=False)
-            
-            logger.debug(
-                "Requesting JWT token from ArangoDB",
+            # Log what we're actually using (without password value)
+            logger.info(
+                "Authenticating with ArangoDB",
                 auth_url=auth_url,
                 username=self.settings.arango_username,
+                password_length=len(self.settings.arango_password) if self.settings.arango_password else 0,
+                password_set=bool(self.settings.arango_password),
             )
             
-            # POST to /_open/auth with username/password in JSON body
-            auth_response = await auth_client.post(
-                auth_url,
-                json={
-                    "username": self.settings.arango_username,
-                    "password": self.settings.arango_password,
-                },
-                headers={"Content-Type": "application/json"},
-            )
+            # Exact notebook code: response = requests.post(auth_url, json=payload, verify=False)
+            # Note: httpx sets verify=False on the client, not on the request
+            auth_client = httpx.AsyncClient(timeout=10.0, verify=False)
+            auth_response = await auth_client.post(auth_url, json=payload)
             
-            if auth_response.status_code == 200:
-                result = auth_response.json()
-                token = result.get("jwt")
-                if token:
-                    self._jwt_token = token
-                    # Log token info (first/last chars for security)
-                    token_preview = f"{token[:20]}...{token[-10:]}" if len(token) > 30 else "***"
-                    logger.info(
-                        "Successfully obtained JWT token from ArangoDB",
-                        token_length=len(token),
-                        token_preview=token_preview,
-                    )
-                    await auth_client.aclose()
-                    return token
-                else:
-                    logger.warning("JWT token not found in auth response", response=result)
-            else:
-                logger.warning(
-                    "Failed to get JWT token from /_open/auth",
-                    status=auth_response.status_code,
-                    response=auth_response.text[:500],
+            # Check response before raising
+            if auth_response.status_code == 401:
+                error_detail = auth_response.json() if auth_response.headers.get("content-type", "").startswith("application/json") else auth_response.text
+                logger.error(
+                    "Authentication failed: Wrong credentials",
                     auth_url=auth_url,
+                    username=self.settings.arango_username,
+                    error_detail=error_detail,
+                    note="Please verify ARANGODB_USERNAME and ARANGODB_PASSWORD are correct in your environment variables",
                 )
             
-            await auth_client.aclose()
-            return None
+            auth_response.raise_for_status()
             
+            # Exact notebook code: jwt_token = response.json().get("jwt")
+            result = auth_response.json()
+            token = result.get("jwt")
+            
+            if not token:
+                raise ValueError("Authentication response does not contain a token.")
+            
+            self._jwt_token = token
+            await auth_client.aclose()
+            logger.info("Authentication successful. JWT token retrieved.")
+            return token
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error during authentication: {e}")
+            raise
+        except ValueError as ve:
+            logger.error(f"Error processing authentication response: {ve}")
+            raise
         except Exception as e:
-            logger.warning("JWT token retrieval failed", error=str(e))
-            return None
+            logger.error(f"Error during authentication: {e}")
+            raise
     
     @property
     def client(self) -> httpx.AsyncClient:
-        """Get or create the HTTP client."""
+        """Get or create the HTTP client (notebook pattern: verify=False)."""
         if self._client is None:
-            # Start with BasicAuth, will try JWT if needed
-            username = self.settings.arango_username
-            
-            auth = httpx.BasicAuth(
-                username=username,
-                password=self.settings.arango_password,
-            )
-            
-            # Internal Kubernetes .svc endpoints typically don't have valid SSL certs
-            # External endpoints should verify SSL
-            is_internal = ".svc" in self.retriever_url or "deployment.arangodb-platform" in self.retriever_url
-            verify_ssl = not is_internal
-            
-            logger.debug(
-                "Creating GraphRAG HTTP client",
-                username=username,
-                database=self.settings.arango_database,
-                endpoint=self.retriever_url,
-                is_internal=is_internal,
-                verify_ssl=verify_ssl,
-            )
-            
+            # Notebook uses verify=False for all requests
             self._client = httpx.AsyncClient(
                 timeout=30.0,
-                verify=verify_ssl,
-                auth=auth,
+                verify=False,
             )
         return self._client
     
@@ -180,7 +162,7 @@ class GraphRAGService:
             level=level,
             database=self.settings.arango_database,
             username=self.settings.arango_username,
-            endpoint=self.retriever_url,
+            endpoint=self.retriever_endpoint,
         )
         
         try:
@@ -200,203 +182,48 @@ class GraphRAGService:
             elif isinstance(query_type, int):
                 query_type_int = query_type
             
+            # Build payload matching notebook pattern exactly
+            # Notebook always includes: query, query_type, level, provider
             payload = {
                 "query": query,
                 "query_type": query_type_int,  # Integer: 1=GLOBAL, 2=LOCAL, 3=UNIFIED
+                "level": level,  # Always include (notebook pattern)
+                "provider": provider,  # Always include (0=public LLMs, 1=private LLMs)
             }
             
             # Add optional parameters based on query type
-            if query_type_int == 1:  # GLOBAL - Global Search
-                payload["level"] = level
-            elif query_type_int == 2:  # LOCAL - Deep Search
+            if query_type_int == 2:  # LOCAL - Deep Search
                 payload["use_llm_planner"] = use_llm_planner
-            # UNIFIED (3) doesn't need extra params
-            
-            # Provider (0=public LLMs, 1=private LLMs)
-            payload["provider"] = provider
             
             # Note: Project name is not in the API payload according to docs
             # The service_id in the URL path identifies the retriever service
             
+            # Exact notebook code: headers with JWT token
+            jwt_token = await self._get_jwt_token()
+            if not jwt_token:
+                raise ValueError("JWT token is not set. Please authenticate first.")
+            
             headers = {
-                "Content-Type": "application/json",
+                "Authorization": f"Bearer {jwt_token}",
+                "Content-Type": "application/json"
             }
             
-            # Try JWT token authentication first (ArangoDB AI Suite standard)
-            # According to docs: https://docs.arango.ai/ai-suite/reference/ai-orchestrator/
-            jwt_token = await self._get_jwt_token()
-            if jwt_token:
-                headers["Authorization"] = f"Bearer {jwt_token}"
-                logger.info(
-                    "Using JWT Bearer token for authentication",
-                    token_length=len(jwt_token),
-                    endpoint=self.retriever_url,
-                )
-            else:
-                logger.warning("JWT token not available, will use Basic Auth as fallback")
+            # Exact notebook code: send_request(f"/graphrag/retriever/{retriever_service_id}/v1/graphrag-query", myBody, "POST")
+            request_url = self.retriever_endpoint
             
-            # Database headers (may be required for some ArangoDB endpoints)
-            # Note: According to Retriever API docs, authentication is via Bearer token
-            # Database context might be in the service_id or handled automatically
-            if self.settings.arango_database:
-                headers["X-Database"] = self.settings.arango_database
-                headers["X-Arango-Database"] = self.settings.arango_database
-            
-            # Determine the actual request URL
-            # Internal .svc endpoints might not need /v1/graphrag-query suffix
-            request_url = self.retriever_url
-            is_internal = ".svc" in request_url or "deployment.arangodb-platform" in request_url
-            
-            # If internal endpoint doesn't have /v1/graphrag-query, prepare alternative
-            request_url_with_suffix = None
-            if is_internal and "/v1/graphrag-query" not in request_url:
-                request_url_with_suffix = f"{request_url.rstrip('/')}/v1/graphrag-query"
-            
-            # Log the exact request being made for debugging
             logger.debug(
-                "GraphRAG request (attempt 1)",
+                "GraphRAG request (exact notebook pattern)",
                 url=request_url,
-                is_internal=is_internal,
-                payload=payload,  # Log actual payload to see integer query_type
-                payload_keys=list(payload.keys()),
-                headers_keys=list(headers.keys()),
-                username=self.settings.arango_username,
-                database=self.settings.arango_database,
-                project=self.settings.graphrag_project_name,
-                using_jwt=bool(jwt_token),
+                service_id=self.service_id,
+                payload=payload,
             )
             
-            # Try the URL as-is first
+            # Make request (notebook uses verify=False)
             response = await self.client.post(
                 request_url,
                 json=payload,
                 headers=headers,
             )
-            
-            # If 404 and internal endpoint, try with /v1/graphrag-query suffix
-            if response.status_code == 404 and is_internal and request_url_with_suffix:
-                logger.debug("404 on internal endpoint, trying with /v1/graphrag-query suffix")
-                response = await self.client.post(
-                    request_url_with_suffix,
-                    json=payload,
-                    headers=headers,
-                )
-            
-            logger.debug(
-                "GraphRAG request details (attempt 1)",
-                url=self.retriever_url,
-                status_code=response.status_code,
-                response_text=response.text[:500] if response.status_code != 200 else None,
-            )
-            
-            # If 401, log detailed error information
-            if response.status_code == 401:
-                error_detail = None
-                try:
-                    error_json = response.json()
-                    error_detail = error_json
-                except:
-                    error_detail = response.text[:1000]
-                
-                logger.error(
-                    "401 Unauthorized - JWT token may be invalid or insufficient permissions",
-                    endpoint=request_url,
-                    has_jwt_token=bool(jwt_token),
-                    jwt_token_length=len(jwt_token) if jwt_token else 0,
-                    error_detail=error_detail,
-                    headers_sent=list(headers.keys()),
-                    payload_keys=list(payload.keys()),
-                    username=self.settings.arango_username,
-                    database=self.settings.arango_database,
-                    service_id="dcajr",
-                    note="If JWT token is valid, user may lack permissions for GraphRAG retriever service",
-                )
-                
-                # If JWT was used but failed, try getting a fresh token
-                if jwt_token:
-                    logger.info("JWT token failed, invalidating and trying fresh token")
-                    self._jwt_token = None  # Invalidate cached token
-                    fresh_jwt = await self._get_jwt_token()
-                    if fresh_jwt and fresh_jwt != jwt_token:
-                        logger.info("Got fresh JWT token, retrying request")
-                        headers["Authorization"] = f"Bearer {fresh_jwt}"
-                        response = await self.client.post(
-                            request_url,
-                            json=payload,
-                            headers=headers,
-                        )
-                        if response.status_code == 200:
-                            logger.info("Fresh JWT token worked!")
-                        else:
-                            logger.warning("Fresh JWT token also failed", status=response.status_code)
-                
-                logger.info("401 received, trying alternative authentication methods")
-                
-                # Attempt 2: username@database format
-                username_with_db = f"{self.settings.arango_username}@{self.settings.arango_database}"
-                retry_client = httpx.AsyncClient(
-                    timeout=30.0,
-                    verify=True,
-                    auth=httpx.BasicAuth(
-                        username=username_with_db,
-                        password=self.settings.arango_password,
-                    ),
-                )
-                
-                try:
-                    retry_headers = headers.copy()
-                    if "Authorization" in retry_headers:
-                        del retry_headers["Authorization"]
-                    
-                    logger.debug(
-                        "GraphRAG request (attempt 2 - username@database)",
-                        url=self.retriever_url,
-                        username=username_with_db,
-                    )
-                    
-                    response = await retry_client.post(
-                        self.retriever_url,
-                        json=payload,
-                        headers=retry_headers,
-                    )
-                    
-                    logger.debug(
-                        "GraphRAG request details (attempt 2)",
-                        status_code=response.status_code,
-                        response_text=response.text[:500] if response.status_code != 200 else None,
-                    )
-                    
-                    # If still 401, try with database in URL path
-                    if response.status_code == 401 and self.settings.arango_database:
-                        logger.info("Still 401, trying database in URL path")
-                        # Try: /graphrag/retriever/{service}/{database}/v1/graphrag-query
-                        url_parts = self.retriever_url.split("/graphrag/retriever/")
-                        if len(url_parts) == 2:
-                            service_part = url_parts[1]
-                            # Insert database before /v1/
-                            if "/v1/" in service_part:
-                                service_id = service_part.split("/v1/")[0]
-                                new_url = f"{url_parts[0]}/graphrag/retriever/{service_id}/{self.settings.arango_database}/v1/graphrag-query"
-                                
-                                logger.debug(
-                                    "GraphRAG request (attempt 3 - database in URL)",
-                                    url=new_url,
-                                    username=username_with_db,
-                                )
-                                
-                                response = await retry_client.post(
-                                    new_url,
-                                    json=payload,
-                                    headers=retry_headers,
-                                )
-                                
-                                logger.debug(
-                                    "GraphRAG request details (attempt 3)",
-                                    status_code=response.status_code,
-                                    response_text=response.text[:500] if response.status_code != 200 else None,
-                                )
-                finally:
-                    await retry_client.aclose()
             
             response.raise_for_status()
             
@@ -422,7 +249,7 @@ class GraphRAGService:
             logger.error(
                 "GraphRAG retrieval HTTP error",
                 status_code=e.response.status_code if e.response else None,
-                url=self.retriever_url,
+                url=self.retriever_endpoint,
                 detail=error_detail,
                 username=self.settings.arango_username,
                 database=self.settings.arango_database,

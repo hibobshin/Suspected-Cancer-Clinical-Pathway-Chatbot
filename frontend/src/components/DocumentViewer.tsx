@@ -1,181 +1,530 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, FileText } from 'lucide-react';
+import { X, FileText, Loader2, ChevronRight } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import { cn } from '@/lib/utils';
 
 interface DocumentViewerProps {
   isOpen: boolean;
   onClose: () => void;
   ruleId?: string;
   sectionPath?: string;
+  solutionMode?: 'graphrag' | 'rag' | 'custom';
+  highlightedSection?: string | null;
+  onSectionHover?: (section: string | null) => void;
 }
 
-interface DocumentData {
-  document: string;
-  highlight_rule_id: string | null;
-  highlight_section: string | null;
-  highlight_start: number | null;
-  highlight_end: number | null;
+interface SectionMatch {
+  id: string;
+  title: string;
+  startIndex: number;
+  endIndex: number;
+  level: number;
+  content: string;
 }
 
-export function DocumentViewer({ isOpen, onClose, ruleId, sectionPath }: DocumentViewerProps) {
-  const [documentData, setDocumentData] = useState<DocumentData | null>(null);
+interface RuleMatch {
+  id: string;
+  content: string;
+  sectionId: string;
+}
+
+export function DocumentViewer({ 
+  isOpen, 
+  onClose, 
+  ruleId, 
+  sectionPath,
+  solutionMode = 'custom',
+  highlightedSection,
+}: DocumentViewerProps) {
+  const [documentContent, setDocumentContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const highlightRef = useRef<HTMLDivElement>(null);
+  const [sections, setSections] = useState<SectionMatch[]>([]);
+  const [, setRules] = useState<RuleMatch[]>([]);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [activeRuleId, setActiveRuleId] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const ruleRefs = useRef<Map<string, HTMLElement>>(new Map());
 
+  // Load document when opened
   useEffect(() => {
-    if (isOpen && (ruleId || sectionPath)) {
+    if (isOpen && solutionMode === 'custom') {
       fetchDocument();
     }
-  }, [isOpen, ruleId, sectionPath]);
+  }, [isOpen, solutionMode]);
+
+  // Parse sections and rules from markdown
+  useEffect(() => {
+    if (documentContent) {
+      const parsedSections = parseMarkdownSections(documentContent);
+      setSections(parsedSections);
+      
+      // Parse rule IDs from content (e.g., "1.1.1 Refer people...")
+      const parsedRules = parseRuleIds(documentContent);
+      setRules(parsedRules);
+    }
+  }, [documentContent]);
+  
+  const parseRuleIds = (markdown: string): RuleMatch[] => {
+    const rules: RuleMatch[] = [];
+    // Match patterns like "1.1.1 Refer..." or "1.3.5 Consider..."
+    const rulePattern = /^(\d+\.\d+(?:\.\d+)?)\s+(.+)/gm;
+    let match;
+    
+    while ((match = rulePattern.exec(markdown)) !== null) {
+      rules.push({
+        id: match[1],
+        content: match[2].substring(0, 100),
+        sectionId: '',
+      });
+    }
+    
+    return rules;
+  };
+
+  // Handle external highlight requests
+  useEffect(() => {
+    if (highlightedSection && sections.length > 0) {
+      scrollToSection(highlightedSection);
+      setActiveSection(null); // Clear any previous active section
+      // Find and set the active section
+      const section = sections.find(s => 
+        s.id === highlightedSection ||
+        s.title.toLowerCase().includes(highlightedSection.toLowerCase()) ||
+        highlightedSection.toLowerCase().includes(s.title.toLowerCase())
+      );
+      if (section) {
+        setActiveSection(section.id);
+      }
+    }
+  }, [highlightedSection, sections]);
+
+  // Auto-scroll to section based on ruleId or sectionPath
+  useEffect(() => {
+    if (isOpen && sections.length > 0 && (ruleId || sectionPath)) {
+      const targetSection = ruleId || sectionPath;
+      if (targetSection) {
+        setTimeout(() => scrollToSection(targetSection), 300);
+      }
+    }
+  }, [isOpen, sections, ruleId, sectionPath]);
 
   const fetchDocument = async () => {
     setLoading(true);
     setError(null);
     
     try {
-      const params = new URLSearchParams();
-      if (ruleId) params.append('rule_id', ruleId);
-      if (sectionPath) params.append('section_path', sectionPath);
-      
-      const response = await fetch(`/api/v1/document/section?${params.toString()}`);
+      // Fetch final.md from the backend
+      const response = await fetch('/api/v1/document/final');
       if (!response.ok) {
         throw new Error('Failed to fetch document');
       }
       
-      const data: DocumentData = await response.json();
-      setDocumentData(data);
-      
-      // Scroll to highlight after a brief delay
-      setTimeout(() => {
-        if (highlightRef.current) {
-          highlightRef.current.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'center' 
-          });
-        }
-      }, 300);
+      const text = await response.text();
+      setDocumentContent(text);
     } catch (err) {
+      console.error('Error fetching document:', err);
       setError(err instanceof Error ? err.message : 'Failed to load document');
     } finally {
       setLoading(false);
     }
   };
 
-  const renderDocument = () => {
-    if (!documentData) return null;
-    
-    const { document, highlight_start, highlight_end } = documentData;
-    
-    if (highlight_start !== null && highlight_end !== null) {
-      // Split document into parts: before, highlighted, after
-      const before = document.slice(0, highlight_start);
-      const highlighted = document.slice(highlight_start, highlight_end);
-      const after = document.slice(highlight_end);
+  const parseMarkdownSections = (markdown: string): SectionMatch[] => {
+    const sections: SectionMatch[] = [];
+    const lines = markdown.split('\n');
+    let currentIndex = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
       
-      return (
-        <div className="prose prose-sm max-w-none">
-          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-            {before}
-            <mark
-              ref={highlightRef}
-              className="bg-yellow-200 text-yellow-900 px-1 rounded font-semibold"
-            >
-              {highlighted}
-            </mark>
-            {after}
-          </pre>
-        </div>
-      );
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const title = headingMatch[2].trim();
+        const id = generateSectionId(title);
+        
+        // Find the end of this section (next heading of same or higher level)
+        let endIndex = currentIndex + line.length + 1;
+        for (let j = i + 1; j < lines.length; j++) {
+          const nextLine = lines[j];
+          const nextHeadingMatch = nextLine.match(/^(#{1,6})\s+/);
+          if (nextHeadingMatch && nextHeadingMatch[1].length <= level) {
+            break;
+          }
+          endIndex += nextLine.length + 1;
+        }
+        
+        sections.push({
+          id,
+          title,
+          level,
+          startIndex: currentIndex,
+          endIndex,
+          content: markdown.slice(currentIndex, endIndex),
+        });
+      }
+      
+      currentIndex += line.length + 1;
     }
     
-    // No highlighting - show full document
-    return (
-      <div className="prose prose-sm max-w-none">
-        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed">
-          {document}
-        </pre>
-      </div>
-    );
+    return sections;
   };
+
+  const generateSectionId = (title: string): string => {
+    return title
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/--+/g, '-')
+      .trim();
+  };
+
+  const scrollToSection = (sectionIdentifier: string) => {
+    // First, check if this is a rule ID (e.g., "1.1.1")
+    const isRuleId = /^\d+\.\d+(\.\d+)?$/.test(sectionIdentifier);
+    
+    if (isRuleId) {
+      // Try to find and scroll to the rule
+      const ruleElement = ruleRefs.current.get(sectionIdentifier);
+      if (ruleElement) {
+        setActiveRuleId(sectionIdentifier);
+        setActiveSection(null);
+        
+        setTimeout(() => {
+          ruleElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center',
+          });
+        }, 100);
+        
+        // Clear highlight after 5 seconds
+        setTimeout(() => setActiveRuleId(null), 5000);
+        return;
+      }
+    }
+    
+    // Try to find section by ID, title, or partial match
+    const section = sections.find(s => 
+      s.id === sectionIdentifier ||
+      s.id === sectionIdentifier.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-') ||
+      s.title.toLowerCase().includes(sectionIdentifier.toLowerCase()) ||
+      sectionIdentifier.toLowerCase().includes(s.title.toLowerCase())
+    );
+
+    if (section) {
+      const element = sectionRefs.current.get(section.id);
+      if (element) {
+        setActiveSection(section.id);
+        setActiveRuleId(null);
+        
+        // Delay scroll slightly to ensure rendering
+        setTimeout(() => {
+          element.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center',
+          });
+        }, 100);
+        
+        // Clear highlight after 4 seconds
+        setTimeout(() => setActiveSection(null), 4000);
+      }
+    }
+  };
+
+  const registerSectionRef = (id: string, element: HTMLElement | null) => {
+    if (element) {
+      sectionRefs.current.set(id, element);
+    } else {
+      sectionRefs.current.delete(id);
+    }
+  };
+  
+  const registerRuleRef = (ruleId: string, element: HTMLElement | null) => {
+    if (element) {
+      ruleRefs.current.set(ruleId, element);
+    } else {
+      ruleRefs.current.delete(ruleId);
+    }
+  };
+  
+  // Extract rule ID from text if present (e.g., "1.1.1 Refer people..." -> "1.1.1")
+  const extractRuleId = (text: string): string | null => {
+    const match = text.match(/^(\d+\.\d+(?:\.\d+)?)\s/);
+    return match ? match[1] : null;
+  };
+
+  if (!isOpen) return null;
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-black/20 z-40"
-          />
-          
-          {/* Side Panel */}
           <motion.div
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 flex flex-col"
+          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+          className="fixed right-0 top-0 h-full w-[600px] bg-white shadow-2xl border-l border-surface-200 z-50 flex flex-col"
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-surface-200 bg-surface-50">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-primary-600" />
+            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-200 bg-gradient-to-r from-surface-50 to-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-lg shadow-primary-500/25">
+                  <FileText className="w-5 h-5 text-white" />
+                </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-surface-900">
+                  <h2 className="text-lg font-display font-bold text-surface-900">
                     NICE NG12 Guideline
                   </h2>
-                  {ruleId && (
                     <p className="text-xs text-surface-500">
-                      Section: {ruleId}
-                    </p>
-                  )}
-                  {sectionPath && !ruleId && (
-                    <p className="text-xs text-surface-500">
-                      {sectionPath}
-                    </p>
-                  )}
+                    Suspected cancer: recognition and referral
+                  </p>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className="p-2 rounded-lg hover:bg-surface-200 transition-colors"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-surface-100 transition-colors group text-sm font-medium text-surface-700 hover:text-surface-900"
                 aria-label="Close document viewer"
               >
-                <X className="w-5 h-5 text-surface-600" />
+                <span>Close</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
             
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div 
+              ref={contentRef}
+              className="flex-1 overflow-y-auto px-6 py-4 scroll-smooth"
+            >
               {loading && (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-2"></div>
-                    <p className="text-sm text-surface-500">Loading document...</p>
+                    <Loader2 className="w-8 h-8 text-primary-600 animate-spin mx-auto mb-3" />
+                    <p className="text-sm text-surface-600 font-medium">Loading document...</p>
                   </div>
                 </div>
               )}
               
               {error && (
                 <div className="flex items-center justify-center h-full">
-                  <div className="text-center text-red-600">
-                    <p className="text-sm">{error}</p>
+                  <div className="text-center max-w-md">
+                    <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+                      <X className="w-6 h-6 text-red-600" />
+                    </div>
+                    <p className="text-sm text-red-600 font-medium">{error}</p>
+                    <button
+                      onClick={fetchDocument}
+                      className="mt-4 px-4 py-2 rounded-lg bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors"
+                    >
+                      Retry
+                    </button>
                   </div>
                 </div>
               )}
               
-              {!loading && !error && documentData && (
-                <div className="max-w-4xl mx-auto">
-                  {renderDocument()}
+              {!loading && !error && documentContent && (
+                <div className="w-full">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeRaw]}
+                    components={{
+                      h1: ({ ...props }) => {
+                        const id = generateSectionId(String(props.children));
+                        const isHighlighted = activeSection === id;
+                        return (
+                          <h1
+                            ref={(el) => registerSectionRef(id, el)}
+                            id={id}
+                            className={cn(
+                              'text-2xl font-display font-bold text-surface-900 mt-6 mb-3 pb-2 border-b-2 border-surface-200 transition-all duration-300',
+                              isHighlighted && 'bg-primary-100/50 -mx-3 px-3 rounded-lg border-primary-300'
+                            )}
+                            {...props}
+                          />
+                        );
+                      },
+                      h2: ({ ...props }) => {
+                        const id = generateSectionId(String(props.children));
+                        const isHighlighted = activeSection === id;
+                        return (
+                          <h2
+                            ref={(el) => registerSectionRef(id, el)}
+                            id={id}
+                            className={cn(
+                              'text-xl font-display font-bold text-surface-900 mt-5 mb-2 transition-all duration-300',
+                              isHighlighted && 'bg-primary-100/50 -mx-3 px-3 py-2 rounded-lg'
+                            )}
+                            {...props}
+                          />
+                        );
+                      },
+                      h3: ({ ...props }) => {
+                        const id = generateSectionId(String(props.children));
+                        const isHighlighted = activeSection === id;
+                        return (
+                          <h3
+                            ref={(el) => registerSectionRef(id, el)}
+                            id={id}
+                            className={cn(
+                              'text-lg font-display font-semibold text-surface-800 mt-4 mb-2 transition-all duration-300',
+                              isHighlighted && 'bg-primary-100/50 -mx-3 px-3 py-2 rounded-lg'
+                            )}
+                            {...props}
+                          />
+                        );
+                      },
+                      h4: ({ ...props }) => {
+                        const id = generateSectionId(String(props.children));
+                        const isHighlighted = activeSection === id;
+                        return (
+                          <h4
+                            ref={(el) => registerSectionRef(id, el)}
+                            id={id}
+                            className={cn(
+                              'text-base font-semibold text-surface-800 mt-3 mb-2 transition-all duration-300',
+                              isHighlighted && 'bg-primary-100/50 -mx-3 px-3 py-1.5 rounded-lg'
+                            )}
+                            {...props}
+                          />
+                        );
+                      },
+                      h5: ({ ...props }) => {
+                        const id = generateSectionId(String(props.children));
+                        const isHighlighted = activeSection === id;
+                        return (
+                          <h5
+                            ref={(el) => registerSectionRef(id, el)}
+                            id={id}
+                            className={cn(
+                              'text-sm font-semibold text-surface-700 mt-3 mb-1.5 transition-all duration-300',
+                              isHighlighted && 'bg-primary-100/50 -mx-3 px-3 py-1.5 rounded-lg'
+                            )}
+                            {...props}
+                          />
+                        );
+                      },
+                      h6: ({ ...props }) => {
+                        const id = generateSectionId(String(props.children));
+                        const isHighlighted = activeSection === id;
+                        return (
+                          <h6
+                            ref={(el) => registerSectionRef(id, el)}
+                            id={id}
+                            className={cn(
+                              'text-xs font-semibold text-surface-700 mt-2 mb-1.5 transition-all duration-300',
+                              isHighlighted && 'bg-primary-100/50 -mx-3 px-3 py-1.5 rounded-lg'
+                            )}
+                            {...props}
+                          />
+                        );
+                      },
+                      p: ({ children, ...props }) => {
+                        const text = String(children);
+                        const ruleId = extractRuleId(text);
+                        const isHighlighted = ruleId && activeRuleId === ruleId;
+                        
+                        if (ruleId) {
+                          return (
+                            <p 
+                              ref={(el) => registerRuleRef(ruleId, el)}
+                              data-rule-id={ruleId}
+                              className={cn(
+                                'text-sm text-surface-700 leading-relaxed mb-3 transition-all duration-300',
+                                isHighlighted && 'bg-yellow-100 -mx-3 px-3 py-2 rounded-lg border-l-4 border-primary-500 shadow-sm'
+                              )}
+                              {...props}
+                            >
+                              {children}
+                            </p>
+                          );
+                        }
+                        
+                        return (
+                          <p className="text-sm text-surface-700 leading-relaxed mb-3" {...props} />
+                        );
+                      },
+                      ul: ({ ...props }) => (
+                        <ul className="list-disc list-inside space-y-1 mb-3 text-sm text-surface-700" {...props} />
+                      ),
+                      ol: ({ ...props }) => (
+                        <ol className="list-decimal list-inside space-y-1 mb-3 text-sm text-surface-700" {...props} />
+                      ),
+                      li: ({ ...props }) => (
+                        <li className="ml-3" {...props} />
+                      ),
+                      blockquote: ({ ...props }) => (
+                        <blockquote className="border-l-4 border-primary-300 pl-4 py-2 my-4 italic text-surface-600 bg-surface-50 rounded-r-lg" {...props} />
+                      ),
+                      code: ({ inline, ...props }: any) => 
+                        inline ? (
+                          <code className="px-1.5 py-0.5 rounded bg-surface-100 text-primary-600 text-sm font-mono" {...props} />
+                        ) : (
+                          <code className="block px-4 py-3 rounded-lg bg-surface-900 text-surface-100 text-sm font-mono overflow-x-auto mb-4" {...props} />
+                        ),
+                      table: ({ ...props }) => (
+                        <div className="overflow-x-auto my-4">
+                          <table className="min-w-full divide-y divide-surface-300 border border-surface-300 rounded-lg text-xs" {...props} />
+                        </div>
+                      ),
+                      thead: ({ ...props }) => (
+                        <thead className="bg-surface-100" {...props} />
+                      ),
+                      tbody: ({ ...props }) => (
+                        <tbody className="divide-y divide-surface-200 bg-white" {...props} />
+                      ),
+                      tr: ({ ...props }) => (
+                        <tr className="hover:bg-surface-50 transition-colors" {...props} />
+                      ),
+                      th: ({ ...props }) => (
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-surface-900" {...props} />
+                      ),
+                      td: ({ ...props }) => (
+                        <td className="px-3 py-2 text-xs text-surface-700" {...props} />
+                      ),
+                      a: ({ ...props }) => (
+                        <a className="text-primary-600 hover:text-primary-700 underline transition-colors" target="_blank" rel="noopener noreferrer" {...props} />
+                      ),
+                      hr: ({ ...props }) => (
+                        <hr className="my-8 border-surface-300" {...props} />
+                      ),
+                      strong: ({ ...props }) => (
+                        <strong className="font-semibold text-surface-900" {...props} />
+                      ),
+                      em: ({ ...props }) => (
+                        <em className="italic text-surface-800" {...props} />
+                      ),
+                    }}
+                  >
+                    {documentContent}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>
+
+            {/* Footer with breadcrumb if section or rule is active */}
+            {(activeSection || activeRuleId) && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                className="px-6 py-3 border-t border-surface-200 bg-primary-50"
+              >
+                <div className="flex items-center gap-2 text-sm text-primary-700">
+                  <ChevronRight className="w-4 h-4" />
+                  <span className="font-medium">
+                    {activeRuleId 
+                      ? `Viewing Rule: ${activeRuleId}`
+                      : `Viewing: ${sections.find(s => s.id === activeSection)?.title}`
+                    }
+                  </span>
+                </div>
+              </motion.div>
+            )}
           </motion.div>
-        </>
       )}
     </AnimatePresence>
   );

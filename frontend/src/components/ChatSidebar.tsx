@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -25,6 +25,7 @@ export function ChatSidebar() {
     deleteConversation,
     setSolutionMode,
   } = useChatStore();
+  const navigate = useNavigate();
   const [showModeDialog, setShowModeDialog] = useState(false);
   
   const handleNewConversation = () => {
@@ -33,8 +34,10 @@ export function ChatSidebar() {
   
   const handleModeSelect = (mode: SolutionMode) => {
     setSolutionMode(mode);
-    createConversation();
+    const newId = createConversation();
     setShowModeDialog(false);
+    // Navigate immediately to the new conversation to prevent race conditions
+    navigate(`/chat/${newId}`, { replace: true });
   };
   
   return (

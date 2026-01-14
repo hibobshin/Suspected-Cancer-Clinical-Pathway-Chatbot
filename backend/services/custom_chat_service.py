@@ -1,20 +1,23 @@
 """
 Custom chat service for the NG12 Assistant Pipeline.
 
-This service implements a 4-stage pipeline:
-1. Intent + Safety Gate
-2. Structured Intake (conditional)
-3. Structured Retrieval
-4. Evidence Extraction + Confidence + Final Output
+This service now uses the Document-Native Rule Engine:
+1. Safety Gate (deterministic)
+2. Fact Extraction (LLM)
+3. Rule Matching (deterministic)
+4. Response Generation (LLM)
+
+The old LangGraph pipeline is deprecated but kept for fallback.
 """
 
 import json
 import re
 import time
 from collections.abc import AsyncGenerator
+from typing import Any
 from uuid import UUID, uuid4
 
-from openai import AsyncOpenAI, OpenAIError
+from openai import AsyncOpenAI
 
 from config.config import Settings, get_settings
 from config.custom_config import CustomPipelineSettings, get_custom_settings
@@ -30,12 +33,16 @@ from models.custom_models import (
     IntakeQuestion,
     IntakeResult,
     MetadataQuality,
+    RetrievalResult,
     SafetyGateResult,
     SafetyCheck,
     StructuredResponse,
     VerbatimEvidence,
 )
-from services.custom_guideline_service import RetrievalResult, get_custom_guideline_service
+from services.langgraph_pipeline import LangGraphPipeline
+from services.document_preprocessor import get_document_preprocessor
+from services.rule_engine import get_rule_engine, RuleEngine
+from models.rule_models import IntakeRequest as RuleIntakeRequest
 from models.models import (
     ChatMessage,
     ChatRequest,
@@ -44,6 +51,8 @@ from models.models import (
     MessageRole,
     PathwayRouteType,
     ResponseType,
+    Citation,
+    Artifact,
 )
 
 logger = get_logger(__name__)
@@ -51,10 +60,14 @@ logger = get_logger(__name__)
 
 class CustomChatService:
     """
-    Service for processing chat messages with the Custom NG12 Assistant Pipeline.
+    Service for processing chat messages with the NG12 Document-Native Rule Engine.
     
-    Implements a 4-stage pipeline with strict validation and fail-closed behavior.
+    Uses deterministic rule matching with LLM only for fact extraction and response formatting.
+    The old LangGraph pipeline is deprecated but kept for fallback.
     """
+    
+    # Set to True to use the new Rule Engine, False to use legacy LangGraph
+    USE_RULE_ENGINE = True
     
     def __init__(
         self,
@@ -70,24 +83,38 @@ class CustomChatService:
         """
         self.settings = settings or get_settings()
         self.custom_settings = custom_settings or get_custom_settings()
-        self._client: AsyncOpenAI | None = None
+        self._pipeline: LangGraphPipeline | None = None
+        self._rule_engine: RuleEngine | None = None
+        
+        logger.info(
+            "CustomChatService initialized",
+            config_version=self.custom_settings.config_version,
+            use_rule_engine=self.USE_RULE_ENGINE,
+        )
     
     @property
-    def client(self) -> AsyncOpenAI:
-        """Get or create the OpenAI client (for DeepSeek API)."""
-        if self._client is None:
-            self._client = AsyncOpenAI(
-                api_key=self.settings.deepseek_api_key,
-                base_url="https://api.deepseek.com",
+    def pipeline(self) -> LangGraphPipeline:
+        """Get or create the LangGraph pipeline (deprecated)."""
+        if self._pipeline is None:
+            self._pipeline = LangGraphPipeline(
+                settings=self.settings,
+                custom_settings=self.custom_settings,
             )
-        return self._client
+        return self._pipeline
+    
+    @property
+    def rule_engine(self) -> RuleEngine:
+        """Get or create the Rule Engine."""
+        if self._rule_engine is None:
+            self._rule_engine = get_rule_engine()
+        return self._rule_engine
     
     async def process_message(
         self,
         request: ChatRequest,
     ) -> ChatResponse:
         """
-        Process a chat message through the 4-stage pipeline.
+        Process a chat message through the Rule Engine.
         
         Args:
             request: Chat request with message and context.
@@ -103,88 +130,22 @@ class CustomChatService:
             conversation_id=str(conversation_id),
             message_length=len(request.message),
             route_type=request.route_type.value if request.route_type else None,
+            use_rule_engine=self.USE_RULE_ENGINE,
         )
         
         try:
-            # Stage 1: Intent + Safety Gate
-            safety_result = await self.check_safety_gate(request)
-            if not safety_result.passed:
+            # Input validation
+            query = request.message.strip()
+            if not query or len(query) < self.custom_settings.min_query_length:
                 processing_time = int((time.perf_counter() - start_time) * 1000)
-                return ChatResponse(
-                    conversation_id=conversation_id,
-                    message=safety_result.escalation_message or "I cannot assist with this request.",
-                    response_type=ResponseType.REFUSAL,
-                    citations=[],
-                    artifacts=[],
-                    follow_up_questions=[],
-                    processing_time_ms=processing_time,
+                logger.error(
+                    "Input validation failed",
+                    query_length=len(query),
+                    min_length=self.custom_settings.min_query_length,
                 )
-            
-            intent = safety_result.intent_classification
-            if not intent:
-                processing_time = int((time.perf_counter() - start_time) * 1000)
                 return ChatResponse(
                     conversation_id=conversation_id,
-                    message="I encountered an error classifying your intent. Please try again.",
-                    response_type=ResponseType.ERROR,
-                    citations=[],
-                    artifacts=[],
-                    follow_up_questions=[],
-                    processing_time_ms=processing_time,
-                )
-            
-            logger.info(
-                "Intent classified",
-                intent=intent.intent.value,
-                confidence=intent.confidence,
-            )
-            
-            # Stage 2: Structured Intake (conditional on intent)
-            case_fields: CaseFields | None = None
-            intake_complete = False
-            
-            if intent.intent == IntentType.CASE_TRIAGE:
-                # For case triage, intake is REQUIRED before retrieval
-                case_fields = await self.extract_case_fields(request)
-                intake_result = self.validate_intake(case_fields)
-                intake_complete = intake_result.is_complete
-                
-                if not intake_complete:
-                    # FAIL-CLOSED: Do NOT proceed to retrieval
-                    # Generate proper fail-closed message matching gold standard
-                    processing_time = int((time.perf_counter() - start_time) * 1000)
-                    fail_closed_message = self._generate_intake_fail_closed_message(
-                        case_fields,
-                        intake_result,
-                        request.message,
-                    )
-                    
-                    return ChatResponse(
-                        conversation_id=conversation_id,
-                        message=fail_closed_message,
-                        response_type=ResponseType.CLARIFICATION,
-                        citations=[],
-                        artifacts=[],
-                        follow_up_questions=self._extract_required_fields_questions(
-                            case_fields,
-                        ),
-                        processing_time_ms=processing_time,
-                    )
-            elif intent.intent == IntentType.GUIDELINE_LOOKUP:
-                # For guideline lookup, intake not required - can proceed directly
-                intake_complete = True
-            else:
-                # Documentation intent - proceed
-                intake_complete = True
-            
-            # Stage 3: Structured Retrieval (ONLY if intake complete or guideline_lookup)
-            # For case_triage, we should ONLY retrieve if we have required fields
-            if intent.intent == IntentType.CASE_TRIAGE and not intake_complete:
-                # This should not be reached due to early return above, but defensive check
-                processing_time = int((time.perf_counter() - start_time) * 1000)
-                return ChatResponse(
-                    conversation_id=conversation_id,
-                    message="I cannot provide a recommendation without required case information. Please provide the missing details.",
+                    message=f"Query must be at least {self.custom_settings.min_query_length} characters long. Please provide a more detailed query.",
                     response_type=ResponseType.CLARIFICATION,
                     citations=[],
                     artifacts=[],
@@ -192,97 +153,14 @@ class CustomChatService:
                     processing_time_ms=processing_time,
                 )
             
-            guideline_service = get_custom_guideline_service()
+            # Use Rule Engine or fallback to legacy pipeline
+            if self.USE_RULE_ENGINE:
+                return await self._process_with_rule_engine(query, conversation_id, start_time)
+            else:
+                return await self._process_with_legacy_pipeline(query, conversation_id, start_time)
             
-            # Build query from request and case fields
-            query = request.message
-            cancer_site = None
-            age = None
-            symptoms = None
-            
-            # Only pass filters if we have complete case_fields (for case_triage)
-            if intent.intent == IntentType.CASE_TRIAGE and case_fields:
-                if case_fields.age:
-                    age = case_fields.age
-                if case_fields.symptoms:
-                    symptoms = case_fields.symptoms
-            
-            # For guideline_lookup, don't filter by age/symptoms - just search
-            retrieval_result = guideline_service.retrieve(
-                query=query,
-                cancer_site=cancer_site,
-                age=age if intent.intent == IntentType.CASE_TRIAGE else None,  # Only filter by age for case_triage
-                symptoms=symptoms if intent.intent == IntentType.CASE_TRIAGE else None,  # Only filter by symptoms for case_triage
-                max_chunks=self.custom_settings.max_retrieved_chunks,
-            )
-            
-            # Stage 4: Evidence Extraction + Confidence + Final Output
-            evidence = self.extract_evidence(retrieval_result)
-            confidence = self.compute_confidence(evidence, case_fields)
-            
-            structured_response = await self.generate_final_response(
-                evidence=evidence,
-                confidence=confidence,
-                request=request,
-                case_fields=case_fields,
-                intent=intent.intent,
-            )
-            
-            # Map to ChatResponse
-            processing_time = int((time.perf_counter() - start_time) * 1000)
-            
-            # Map citations
-            citations = [
-                {
-                    "statement_id": c.rule_id or "N/A",
-                    "section": c.section_path,
-                    "text": c.evidence_text,
-                }
-                for c in structured_response.citations
-            ]
-            
-            # Map artifacts with location information for highlighting
-            artifacts = [
-                {
-                    "section": e.section_path,
-                    "text": e.text[:500],  # Truncate for display
-                    "relevance_score": e.relevance_score,
-                    "source": "NICE NG12",
-                    "source_url": "https://www.nice.org.uk/guidance/ng12",
-                    "chunk_id": e.chunk_id,
-                    "rule_id": e.rule_id,  # For section highlighting
-                }
-                for e in evidence
-            ]
-            
-            response_type = ResponseType.ANSWER
-            if not confidence.threshold_met:
-                response_type = ResponseType.CLARIFICATION
-            
-            return ChatResponse(
-                conversation_id=conversation_id,
-                message=structured_response.answer,
-                response_type=response_type,
-                citations=citations,
-                artifacts=artifacts,
-                follow_up_questions=structured_response.follow_up_questions if hasattr(structured_response, 'follow_up_questions') else [],
-                processing_time_ms=processing_time,
-            )
-            
-        except OpenAIError as e:
-            logger.error("OpenAI API error in custom chat", error=str(e))
-            processing_time = int((time.perf_counter() - start_time) * 1000)
-            return ChatResponse(
-                conversation_id=conversation_id,
-                message=f"I encountered an error processing your request: {str(e)}",
-                response_type=ResponseType.ERROR,
-                citations=[],
-                artifacts=[],
-                follow_up_questions=[],
-                processing_time_ms=processing_time,
-            )
         except Exception as e:
-            logger.exception("Unexpected error in custom chat", error=str(e))
+            logger.exception("Unexpected error in custom chat", error=str(e), conversation_id=str(conversation_id))
             processing_time = int((time.perf_counter() - start_time) * 1000)
             return ChatResponse(
                 conversation_id=conversation_id,
@@ -293,6 +171,259 @@ class CustomChatService:
                 follow_up_questions=[],
                 processing_time_ms=processing_time,
             )
+    
+    async def _process_with_rule_engine(
+        self,
+        query: str,
+        conversation_id: UUID,
+        start_time: float,
+    ) -> ChatResponse:
+        """Process query using the new Rule Engine."""
+        
+        # Run Rule Engine
+        result = await self.rule_engine.process(query, str(conversation_id))
+        
+        processing_time = int((time.perf_counter() - start_time) * 1000)
+        
+        # Convert response type
+        response_type_map = {
+            "answer": ResponseType.ANSWER,
+            "clarification": ResponseType.CLARIFICATION,
+            "intake_form": ResponseType.CLARIFICATION,
+            "fail_closed": ResponseType.CLARIFICATION,
+        }
+        response_type = response_type_map.get(result.response_type, ResponseType.ANSWER)
+        
+        # Extract response text
+        if isinstance(result.response, RuleIntakeRequest):
+            # Format intake request as text
+            response_text = result.response.partial_assessment or result.response.reason
+            if result.response.fields:
+                response_text += "\n\n**Please provide:**\n"
+                for field in result.response.fields:
+                    response_text += f"- {field.label}: {field.context}\n"
+        else:
+            response_text = result.response
+        
+        # Convert artifacts
+        artifacts = [
+            Artifact(
+                section=a.section,
+                text=a.text,
+                source="NICE NG12",
+                source_url="https://www.nice.org.uk/guidance/ng12",
+                relevance_score=a.relevance_score,
+                chunk_id=a.rule_id,
+                rule_id=a.rule_id,
+            )
+            for a in result.artifacts
+        ]
+        
+        # Parse citations from matched rules
+        citations = []
+        for match in result.matches[:5]:
+            citations.append(Citation(
+                statement_id=match.rule.rule_id,
+                section=match.rule.section_path,
+                text=match.rule.verbatim_text[:200],
+            ))
+        
+        logger.info(
+            "Rule engine processed message",
+            conversation_id=str(conversation_id),
+            response_type=response_type.value,
+            matches_count=len(result.matches),
+            full_matches=sum(1 for m in result.matches if m.match_type == "full"),
+            artifacts_count=len(artifacts),
+            processing_time_ms=processing_time,
+        )
+        
+        return ChatResponse(
+            conversation_id=conversation_id,
+            message=response_text,
+            response_type=response_type,
+            citations=citations,
+            artifacts=artifacts,
+            follow_up_questions=[],
+            processing_time_ms=processing_time,
+        )
+    
+    async def _process_with_legacy_pipeline(
+        self,
+        query: str,
+        conversation_id: UUID,
+        start_time: float,
+    ) -> ChatResponse:
+        """Process query using the legacy LangGraph pipeline (deprecated)."""
+        
+        # Validate preprocessor is initialized
+        preprocessor = get_document_preprocessor()
+        sections = preprocessor.get_sections()
+        if not sections:
+            processing_time = int((time.perf_counter() - start_time) * 1000)
+            logger.error("Preprocessor not initialized", sections_count=len(sections))
+            return ChatResponse(
+                conversation_id=conversation_id,
+                message="The guideline document is not available. Please contact support.",
+                response_type=ResponseType.ERROR,
+                citations=[],
+                artifacts=[],
+                follow_up_questions=[],
+                processing_time_ms=processing_time,
+            )
+        
+        # Run LangGraph pipeline
+        pipeline_state = await self.pipeline.run(query, str(conversation_id))
+        
+        processing_time = int((time.perf_counter() - start_time) * 1000)
+        
+        # Check for errors
+        if pipeline_state.get("error"):
+            error_message = pipeline_state["error"]
+            logger.error("Pipeline error", error=error_message, conversation_id=str(conversation_id))
+            return ChatResponse(
+                conversation_id=conversation_id,
+                message=f"I encountered an error: {error_message}. Please try again.",
+                response_type=ResponseType.ERROR,
+                citations=[],
+                artifacts=[],
+                follow_up_questions=[],
+                processing_time_ms=processing_time,
+            )
+        
+        # Extract response
+        response_text = pipeline_state.get("response", "")
+        if not response_text:
+            logger.warning("Empty response from pipeline", conversation_id=str(conversation_id))
+            response_text = "I was unable to generate a response. Please try rephrasing your query."
+        
+        # Parse citations from response
+        citations = self._parse_citations_from_response(response_text, pipeline_state)
+        
+        # Build artifacts from ranked chunks
+        artifacts = self._build_artifacts_from_chunks(pipeline_state)
+        
+        # Determine response type
+        response_type = ResponseType.ANSWER
+        if "cannot provide" in response_text.lower() or "do not contain" in response_text.lower():
+            response_type = ResponseType.CLARIFICATION
+        
+        logger.info(
+            "Legacy pipeline processed message",
+            conversation_id=str(conversation_id),
+            response_type=response_type.value,
+            citations_count=len(citations),
+            artifacts_count=len(artifacts),
+            processing_time_ms=processing_time,
+        )
+        
+        return ChatResponse(
+            conversation_id=conversation_id,
+            message=response_text,
+            response_type=response_type,
+            citations=citations,
+            artifacts=artifacts,
+            follow_up_questions=[],
+            processing_time_ms=processing_time,
+        )
+    
+    def _parse_citations_from_response(
+        self,
+        response_text: str,
+        pipeline_state: dict[str, Any],
+    ) -> list[Citation]:
+        """
+        Parse citations from response text.
+        
+        Args:
+            response_text: Response text that may contain citations.
+            pipeline_state: Pipeline state with ranked chunks.
+            
+        Returns:
+            List of Citation objects.
+        """
+        citations = []
+        
+        # Pattern: [subsection_path] or [rule_id: subsection_path]
+        citation_pattern = r'\[([^\]]+):?\s*([^\]]*)\]'
+        matches = re.finditer(citation_pattern, response_text)
+        
+        # Get subsection map from preprocessor
+        preprocessor = get_document_preprocessor()
+        all_subsections = preprocessor.get_all_subsections()
+        subsection_map = {sub.subsection_path: sub for sub in all_subsections}
+        
+        for match in matches:
+            if match.lastindex >= 2 and match.group(2):
+                # Format: [rule_id: subsection_path]
+                rule_id_or_path = match.group(1).strip()
+                subsection_path = match.group(2).strip()
+                
+                if not subsection_path:
+                    subsection_path = rule_id_or_path
+                    rule_id = None
+                else:
+                    rule_id = rule_id_or_path
+            else:
+                # Format: [subsection_path]
+                subsection_path = match.group(1).strip()
+                rule_id = None
+            
+            # Find subsection
+            subsection = subsection_map.get(subsection_path)
+            if subsection:
+                citation_text = subsection.content[:200]  # First 200 chars
+                citations.append(Citation(
+                    statement_id=rule_id or subsection_path,
+                    section=subsection_path,
+                    text=citation_text,
+                ))
+        
+        logger.info("Citations parsed", count=len(citations))
+        return citations
+    
+    def _build_artifacts_from_chunks(
+        self,
+        pipeline_state: dict[str, Any],
+    ) -> list[Artifact]:
+        """
+        Build artifacts from ranked chunks.
+        
+        Args:
+            pipeline_state: Pipeline state with ranked chunks.
+            
+        Returns:
+            List of Artifact objects.
+        """
+        artifacts = []
+        
+        ranked_chunks = pipeline_state.get("ranked_chunks", [])
+        if not ranked_chunks:
+            return artifacts
+        
+        # Get subsection map from preprocessor
+        preprocessor = get_document_preprocessor()
+        all_subsections = preprocessor.get_all_subsections()
+        subsection_map = {sub.subsection_id: sub for sub in all_subsections}
+        
+        for subsection_id, score in ranked_chunks:
+            subsection = subsection_map.get(subsection_id)
+            if not subsection:
+                continue
+            
+            artifacts.append(Artifact(
+                section=subsection.subsection_path,
+                text=subsection.content[:500],  # Truncate for display
+                source="NICE NG12",
+                source_url="https://www.nice.org.uk/guidance/ng12",
+                relevance_score=float(score),
+                chunk_id=subsection.subsection_id,
+                char_count=len(subsection.content),
+                rule_id=None,  # Could extract rule IDs if available
+            ))
+        
+        logger.info("Artifacts built", count=len(artifacts))
+        return artifacts
     
     async def process_message_stream(
         self,
@@ -313,6 +444,7 @@ class CustomChatService:
             "Processing custom chat message stream",
             conversation_id=str(conversation_id),
             message_length=len(request.message),
+            use_rule_engine=self.USE_RULE_ENGINE,
         )
         
         try:
@@ -321,32 +453,91 @@ class CustomChatService:
             # Send start event
             yield f"data: {json.dumps({'type': 'start', 'conversation_id': str(conversation_id)})}\n\n"
             
-            # Build messages
-            messages = self._build_messages(request)
-            
-            # Stream from LLM
-            stream = await self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1000,
-                stream=True,
-            )
-            
-            # Stream chunks
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': content})}\n\n"
-            
-            # Send done event
-            yield f"data: {json.dumps({'type': 'done', 'response_type': 'answer'})}\n\n"
+            if self.USE_RULE_ENGINE:
+                # Use Rule Engine
+                result = await self.rule_engine.process(request.message, str(conversation_id))
+                
+                # Extract response text
+                if isinstance(result.response, RuleIntakeRequest):
+                    response_text = result.response.partial_assessment or result.response.reason
+                    if result.response.fields:
+                        response_text += "\n\n**Please provide:**\n"
+                        for field in result.response.fields:
+                            response_text += f"- {field.label}: {field.context}\n"
+                else:
+                    response_text = result.response
+                
+                # Stream response in chunks
+                chunk_size = 50
+                for i in range(0, len(response_text), chunk_size):
+                    chunk = response_text[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                
+                # Build artifacts
+                artifacts = [
+                    Artifact(
+                        section=a.section,
+                        text=a.text,
+                        source="NICE NG12",
+                        source_url="https://www.nice.org.uk/guidance/ng12",
+                        relevance_score=a.relevance_score,
+                        chunk_id=a.rule_id,
+                        rule_id=a.rule_id,
+                    )
+                    for a in result.artifacts
+                ]
+                
+                # Send done event
+                response_type_map = {
+                    "answer": "answer",
+                    "clarification": "clarification",
+                    "intake_form": "clarification",
+                    "fail_closed": "clarification",
+                }
+                done_data = {
+                    'type': 'done',
+                    'response_type': response_type_map.get(result.response_type, 'answer'),
+                    'artifacts': [artifact.model_dump(mode='json') for artifact in artifacts],
+                    'citations': [
+                        {
+                            'statement_id': m.rule.rule_id,
+                            'section': m.rule.section_path,
+                            'text': m.rule.verbatim_text[:200],
+                        }
+                        for m in result.matches[:5]
+                    ],
+                }
+                yield f"data: {json.dumps(done_data)}\n\n"
+            else:
+                # Legacy pipeline
+                pipeline_state = await self.pipeline.run(request.message, str(conversation_id))
+                response_text = pipeline_state.get("response", "")
+                
+                # Stream response in chunks
+                chunk_size = 50
+                for i in range(0, len(response_text), chunk_size):
+                    chunk = response_text[i:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                
+                # Build artifacts from pipeline state
+                artifacts = self._build_artifacts_from_chunks(pipeline_state)
+                
+                # Send done event with artifacts
+                done_data = {
+                    'type': 'done',
+                    'response_type': 'answer',
+                    'artifacts': [artifact.model_dump(mode='json') for artifact in artifacts],
+                    'citations': [],
+                }
+                yield f"data: {json.dumps(done_data)}\n\n"
             
         except Exception as e:
             logger.exception("Error in custom chat stream", error=str(e))
             import json
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
+    # Old methods kept for compatibility but not used in new pipeline
+    # These methods are deprecated - the new LangGraph pipeline handles everything
     async def classify_intent(
         self,
         request: ChatRequest,
@@ -360,7 +551,7 @@ class CustomChatService:
         Args:
             request: Chat request with message and context.
             
-        Returns:
+        Returns: 
             IntentClassification with intent type, confidence, and reasoning.
         """
         logger.info("Classifying intent", message_preview=request.message[:100])

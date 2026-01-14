@@ -6,7 +6,7 @@ All configuration is explicit, validated, and logged at startup.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,10 +19,11 @@ class Settings(BaseSettings):
     """
     
     model_config = SettingsConfigDict(
-        env_file="../.env",  # Load from project root
+        env_file="../.env",  # Load from project root (relative to backend/)
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_ignore_empty=True,
     )
     
     # Application
@@ -51,20 +52,54 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(default=2048, description="Max tokens per response")
     llm_temperature: float = Field(default=1.3, description="Model temperature")
     
-    # ArangoDB
-    arango_host: str = Field(default="http://localhost:8529", description="ArangoDB host URL")
-    arango_username: str = Field(default="root", description="ArangoDB username")
-    arango_password: str = Field(default="", description="ArangoDB password")
+    # OpenAI (for embeddings)
+    openai_api_key: str = Field(
+        default="",
+        description="OpenAI API key for embeddings (set OPENAI_API_KEY in .env)",
+    )
+    
+    # ArangoDB - Using ARANGODB_USERNAME and ARANGODB_PASSWORD from environment
+    # Note: This is for direct ArangoDB connections (separate from GraphRAG endpoint)
+    arango_host: str = Field(
+        default="https://arangodb-platform-dev.pilot.arangodb.com:8529",
+        description="ArangoDB host URL for direct database connections"
+    )
+    # Field names match env var names for pydantic-settings
+    ARANGODB_USERNAME: str = Field(
+        default="root",
+        description="ArangoDB username (from ARANGODB_USERNAME env var)"
+    )
+    ARANGODB_PASSWORD: str = Field(
+        default="",
+        description="ArangoDB password (from ARANGODB_PASSWORD env var)"
+    )
+    
+    # Properties for backward compatibility with existing code
+    @property
+    def arango_username(self) -> str:
+        """Get ArangoDB username (maps from ARANGODB_USERNAME env var)."""
+        return self.ARANGODB_USERNAME
+    
+    @property
+    def arango_password(self) -> str:
+        """Get ArangoDB password (maps from ARANGODB_PASSWORD env var)."""
+        return self.ARANGODB_PASSWORD
     arango_database: str = Field(default="ary_db", description="ArangoDB database name")
     
-    # GraphRAG
-    graphrag_retriever_url: str = Field(
-        default="https://fkd0akd3.rnd.pilot.arango.ai:8529/graphrag/retriever/dcajr/v1/graphrag-query",
-        description="ArangoDB GraphRAG retriever query endpoint. Use external URL for local dev, or internal .svc URL if running in Kubernetes cluster."
+    # GraphRAG - Hardcoded values matching notebook
+    # Notebook uses: SERVER_URL = os.environ['ARANGO_DEPLOYMENT_ENDPOINT']
+    # Using external URL for local development (not Kubernetes .svc internal URL)
+    arango_deployment_endpoint: str = Field(
+        default="https://arangodb-platform-dev.pilot.arangodb.com:8529",
+        description="ArangoDB deployment endpoint (base URL) - hardcoded external URL for local dev"
+    )
+    graphrag_service_id: str = Field(
+        default="dcajr",
+        description="GraphRAG retriever service ID - hardcoded"
     )
     graphrag_project_name: str = Field(
         default="test",
-        description="GraphRAG project name"
+        description="GraphRAG project name - hardcoded"
     )
     
     # Rate Limiting
@@ -89,6 +124,10 @@ class Settings(BaseSettings):
         # Redact sensitive values
         if config.get("deepseek_api_key"):
             config["deepseek_api_key"] = "***REDACTED***"
+        if config.get("openai_api_key"):
+            config["openai_api_key"] = "***REDACTED***"
+        if config.get("ARANGODB_PASSWORD"):
+            config["ARANGODB_PASSWORD"] = "***REDACTED***"
         if config.get("arango_password"):
             config["arango_password"] = "***REDACTED***"
         return config

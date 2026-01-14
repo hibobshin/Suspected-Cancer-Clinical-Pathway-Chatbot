@@ -89,18 +89,43 @@ export function ChatWindow() {
   const [documentViewerOpen, setDocumentViewerOpen] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>();
   const [selectedSectionPath, setSelectedSectionPath] = useState<string | undefined>();
+  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
   
   const messages = activeConversation?.messages ?? [];
   
-  const handleArtifactClick = (artifact: Artifact) => {
-    if (artifact.rule_id) {
-      setSelectedRuleId(artifact.rule_id);
-      setSelectedSectionPath(undefined);
-    } else if (artifact.section) {
-      setSelectedRuleId(undefined);
-      setSelectedSectionPath(artifact.section);
+  // Auto-open document viewer for custom mode when artifacts are present
+  useEffect(() => {
+    if (solutionMode === 'custom' && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === 'assistant' && lastMessage.artifacts && lastMessage.artifacts.length > 0 && !lastMessage.isTyping) {
+        setDocumentViewerOpen(true);
+      }
     }
-    setDocumentViewerOpen(true);
+  }, [messages, solutionMode]);
+  
+  const handleArtifactClick = (artifact: Artifact) => {
+    // Only open document viewer in custom mode
+    if (solutionMode === 'custom') {
+      // Set the section to highlight
+      const sectionIdentifier = artifact.rule_id || artifact.section;
+      if (sectionIdentifier) {
+        setHoveredSection(sectionIdentifier);
+        // Clear highlight after 4 seconds
+        setTimeout(() => setHoveredSection(null), 4000);
+      }
+      
+      // Set URL parameters for scrolling
+      if (artifact.rule_id) {
+        setSelectedRuleId(artifact.rule_id);
+        setSelectedSectionPath(undefined);
+      } else if (artifact.section) {
+        setSelectedRuleId(undefined);
+        setSelectedSectionPath(artifact.section);
+      }
+      
+      // Open document viewer
+      setDocumentViewerOpen(true);
+    }
   };
   
   // Auto-scroll to bottom
@@ -138,7 +163,12 @@ export function ChatWindow() {
   };
   
   return (
-    <main className="flex-1 flex flex-col h-full bg-white">
+    <main 
+      className="flex-1 flex flex-col h-full bg-white transition-all duration-300"
+      style={{
+        marginRight: solutionMode === 'custom' && documentViewerOpen ? '600px' : '0'
+      }}
+    >
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
@@ -156,6 +186,8 @@ export function ChatWindow() {
                   message={message} 
                   showArtifacts={showArtifacts}
                   onArtifactClick={handleArtifactClick}
+                  onArtifactHover={setHoveredSection}
+                  solutionMode={solutionMode}
                 />
               ))}
             </AnimatePresence>
@@ -250,17 +282,23 @@ export function ChatWindow() {
         </div>
       </div>
       
-      {/* Document Viewer Side Panel */}
-      <DocumentViewer
-        isOpen={documentViewerOpen}
-        onClose={() => {
-          setDocumentViewerOpen(false);
-          setSelectedRuleId(undefined);
-          setSelectedSectionPath(undefined);
-        }}
-        ruleId={selectedRuleId}
-        sectionPath={selectedSectionPath}
-      />
+      {/* Document Viewer Side Panel - Only for custom mode */}
+      {solutionMode === 'custom' && (
+        <DocumentViewer
+          isOpen={documentViewerOpen}
+          onClose={() => {
+            setDocumentViewerOpen(false);
+            setSelectedRuleId(undefined);
+            setSelectedSectionPath(undefined);
+            setHoveredSection(null);
+          }}
+          ruleId={selectedRuleId}
+          sectionPath={selectedSectionPath}
+          solutionMode={solutionMode}
+          highlightedSection={hoveredSection}
+          onSectionHover={setHoveredSection}
+        />
+      )}
     </main>
   );
 }
@@ -347,11 +385,15 @@ function EmptyState({
 function MessageBubble({ 
   message, 
   showArtifacts,
-  onArtifactClick 
+  onArtifactClick,
+  onArtifactHover,
+  solutionMode,
 }: { 
   message: ChatMessage; 
   showArtifacts: boolean;
   onArtifactClick?: (artifact: Artifact) => void;
+  onArtifactHover?: (section: string | null) => void;
+  solutionMode?: 'graphrag' | 'rag' | 'custom';
 }) {
   const handleCitationClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
@@ -447,16 +489,60 @@ function MessageBubble({
               <ResponseTypeIndicator type={message.response_type} />
             )}
             
-            {/* Citations */}
-            {!isUser && message.citations && message.citations.length > 0 && (
+            {/* Inline Chunks for Custom Mode - Show after response indicator */}
+            {!isUser && !isTyping && solutionMode === 'custom' && message.artifacts && message.artifacts.length > 0 && onArtifactClick && (
+              <div className="mt-2 flex flex-wrap gap-2 items-center">
+                <span className="text-xs text-surface-500 font-medium">Evidence:</span>
+                {message.artifacts.map((artifact, index) => (
+                  <button
+                    key={`inline-artifact-${index}`}
+                    onClick={() => {
+                      onArtifactClick(artifact);
+                      onArtifactHover?.(artifact.section || artifact.rule_id || null);
+                    }}
+                    onMouseEnter={() => onArtifactHover?.(artifact.section || artifact.rule_id || null)}
+                    onMouseLeave={() => onArtifactHover?.(null)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-50 hover:bg-primary-100 border border-primary-200 hover:border-primary-300 text-primary-700 text-xs font-medium transition-all hover:shadow-sm cursor-pointer"
+                    title={`${artifact.section}${artifact.rule_id ? ` [${artifact.rule_id}]` : ''} - Click to view in document`}
+                  >
+                    <FileText className="w-3 h-3" />
+                    <span className="max-w-[200px] truncate">{artifact.section}</span>
+                    {artifact.rule_id && (
+                      <span className="text-[10px] px-1 py-0.5 rounded bg-primary-100 text-primary-600">
+                        {artifact.rule_id}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            {/* Citations - only show if no inline artifacts are shown (to avoid duplicates) */}
+            {!isUser && message.citations && message.citations.length > 0 && 
+             !(solutionMode === 'custom' && message.artifacts && message.artifacts.length > 0) && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {message.citations.map((citation, index) => (
-                  <span
+                  <button
                     key={index}
-                    className="inline-flex items-center px-2 py-1 rounded-md bg-primary-100 text-primary-700 text-xs font-medium"
+                    onClick={() => {
+                      if (onArtifactClick) {
+                        // Create artifact-like object for the click handler
+                        onArtifactClick({
+                          section: citation.section,
+                          text: citation.text,
+                          source: 'NICE NG12',
+                          source_url: 'https://www.nice.org.uk/guidance/ng12',
+                          relevance_score: 1.0,
+                          rule_id: citation.statement_id,
+                        } as Artifact);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-50 hover:bg-primary-100 border border-primary-200 hover:border-primary-300 text-primary-700 text-xs font-medium transition-all hover:shadow-sm cursor-pointer"
+                    title={`View ${citation.statement_id} in document`}
                   >
+                    <FileText className="w-3 h-3" />
                     {citation.statement_id}: {citation.section}
-                  </span>
+                  </button>
                 ))}
               </div>
             )}
@@ -475,6 +561,7 @@ function MessageBubble({
                   <ArtifactsDisplay 
                     artifacts={message.artifacts} 
                     onArtifactClick={onArtifactClick}
+                    onArtifactHover={onArtifactHover}
                   />
                 </motion.div>
               )}
@@ -526,6 +613,7 @@ function ResponseTypeIndicator({ type }: { type: ResponseType }) {
 
 /**
  * Format message content with markdown-like styling.
+ * Preserves canonical 6-part structure with proper spacing.
  */
 function formatMessage(content: string): string {
   let formatted = content;
@@ -533,8 +621,41 @@ function formatMessage(content: string): string {
   // Convert citations
   formatted = parseCitations(formatted);
   
+  // Bold section headers (canonical structure)
+  // Match headers on their own lines (case-insensitive), optionally followed by colon
+  const sectionHeaders = [
+    'Outcome',
+    'Why this applies',
+    'Why This Applies',
+    'Evidence',
+    'Evidence & Citation',
+    'What Happens Next',
+    'Next steps',
+    'Next Steps',
+    'Confidence',
+    'Confidence Signal',
+    'Why this cannot be determined',
+    'What is needed',
+    'What is Needed',
+    'Safety Boundary',
+  ];
+  
+  sectionHeaders.forEach(header => {
+    // Escape special regex characters in header
+    const escapedHeader = header.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Match header at start of line, optionally followed by colon, then end of line
+    // Capture: (whitespace)(header)(optional colon)
+    const regex = new RegExp(`^(\\s*)(${escapedHeader})(:?)\\s*$`, 'gmi');
+    formatted = formatted.replace(regex, (_match, whitespace, headerText, colon) => {
+      return `${whitespace}<strong>${headerText}${colon}</strong>`;
+    });
+  });
+  
   // Convert **bold**
   formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  
+  // Convert *italic* (but not **bold**)
+  formatted = formatted.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
   
   // Convert bullet points
   formatted = formatted.replace(/^[-•]\s+(.+)$/gm, '<li>$1</li>');
@@ -543,26 +664,67 @@ function formatMessage(content: string): string {
   // Convert numbered lists
   formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
   
-  // Convert line breaks
-  formatted = formatted.replace(/\n\n/g, '</p><p class="mt-3">');
-  formatted = formatted.replace(/\n/g, '<br/>');
+  // Preserve structure: Split by double newlines to maintain section separation
+  // Process each section separately to preserve structure
+  const sections = formatted.split(/\n\n+/);
+  const formattedSections = sections.map((section) => {
+    // Trim whitespace
+    section = section.trim();
+    if (!section) return '';
+    
+    // Check if this section starts with a bold header (already processed)
+    const hasHeader = /^<strong>/.test(section) || /^\s*<strong>/.test(section);
+    
+    // Convert single newlines to <br/> within sections
+    let sectionContent = section.replace(/\n/g, '<br/>');
+    
+    // If it's a header section, add extra spacing after it and wrap content
+    if (hasHeader) {
+      // Header with its content - split header from content
+      const headerMatch = sectionContent.match(/^(<strong>.*?<\/strong>)(.*)$/);
+      if (headerMatch) {
+        const [, header, content] = headerMatch;
+        sectionContent = `<div class="mb-3"><div class="font-semibold mb-1">${header}</div>${content ? `<div>${content}</div>` : ''}</div>`;
+      } else {
+        sectionContent = `<div class="mb-3 font-semibold">${sectionContent}</div>`;
+      }
+    } else {
+      // Regular content section
+      sectionContent = `<div class="mb-2">${sectionContent}</div>`;
+    }
+    
+    return sectionContent;
+  });
   
-  // Wrap in paragraph
-  if (!formatted.startsWith('<')) {
-    formatted = `<p>${formatted}</p>`;
-  }
+  // Join sections with proper spacing
+  formatted = formattedSections.filter(s => s).join('');
+  
+  // Wrap in container div
+  formatted = `<div class="space-y-1">${formatted}</div>`;
   
   return formatted;
 }
 
 function ArtifactsDisplay({ 
   artifacts,
-  onArtifactClick 
+  onArtifactClick,
+  onArtifactHover,
 }: { 
   artifacts: Artifact[];
   onArtifactClick?: (artifact: Artifact) => void;
+  onArtifactHover?: (section: string | null) => void;
 }) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  
+  const handleArtifactHover = (artifact: Artifact | null) => {
+    if (artifact) {
+      // Use section title for hover highlighting
+      const sectionId = artifact.section || artifact.rule_id;
+      onArtifactHover?.(sectionId || null);
+    } else {
+      onArtifactHover?.(null);
+    }
+  };
   
   return (
     <motion.div 
@@ -602,7 +764,9 @@ function ArtifactsDisplay({
               ease: 'easeOut'
             }}
             layout
-            className="border border-surface-200 rounded-lg bg-surface-50 overflow-hidden"
+            className="border border-surface-200 rounded-lg bg-surface-50 overflow-hidden hover:border-primary-300 hover:shadow-md transition-all duration-200"
+            onMouseEnter={() => handleArtifactHover(artifact)}
+            onMouseLeave={() => handleArtifactHover(null)}
           >
             <div className="p-3">
               <div className="flex items-start justify-between gap-2 mb-2">
