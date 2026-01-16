@@ -179,7 +179,8 @@ class TermsIndex:
             "belly pain",
             "tummy pain",
             "stomach pain",
-            "abdominal discomfort",
+            # NOTE: "abdominal discomfort" is NOT the same as "abdominal pain"
+            # Discomfort is vague and should NOT be upgraded to pain
         ],
         "weight loss": [
             "losing weight",

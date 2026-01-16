@@ -278,6 +278,13 @@ class RuleMatcher:
         else:
             match_type = "partial"
         
+        # SAFETY: Validate full matches against verbatim rule text
+        if match_type == "full":
+            validation_result = self._validate_full_match(rule, facts, normalized_symptoms)
+            if not validation_result[0]:
+                match_type = "partial"
+                unmatched_conditions.append(validation_result[1])
+        
         return MatchResult(
             rule=rule,
             match_type=match_type,
@@ -285,6 +292,92 @@ class RuleMatcher:
             unmatched_conditions=unmatched_conditions,
             confidence=confidence,
         )
+    
+    def _validate_full_match(
+        self,
+        rule: NG12Rule,
+        facts: ExtractedFacts,
+        normalized_symptoms: list[str],
+    ) -> tuple[bool, str]:
+        """
+        SAFETY VALIDATION: Check if a full match is actually valid.
+        
+        This catches parsing/matching errors by checking the verbatim rule text.
+        Returns (is_valid, reason_if_invalid).
+        """
+        rule_text = rule.verbatim_text.lower()
+        symptoms_lower = [s.lower() for s in normalized_symptoms]
+        history_lower = [h.lower() for h in facts.history]
+        findings_lower = [f.lower() for f in facts.findings]
+        
+        # CHECK 1: Rules requiring multiple symptoms
+        if "2 or more" in rule_text or "two or more" in rule_text:
+            # Count how many qualifying symptoms the patient has
+            symptom_count = len(symptoms_lower)
+            if symptom_count < 2:
+                return False, f"Rule requires 2+ symptoms, patient has {symptom_count}"
+        
+        # CHECK 2: Rules requiring smoking history
+        if "have ever smoked" in rule_text or "smoking history" in rule_text:
+            has_smoking = any("smok" in h for h in history_lower)
+            # Check if this is an OR with other options
+            if " or " not in rule_text.split("smoked")[0][-50:]:
+                # Smoking is required, not optional
+                if not has_smoking:
+                    return False, "Rule requires smoking history"
+        
+        # CHECK 3: Rules requiring asbestos exposure
+        if "asbestos" in rule_text:
+            has_asbestos = any("asbestos" in h for h in history_lower)
+            # Check if this is an OR with other options
+            if " or " not in rule_text.split("asbestos")[0][-50:]:
+                if not has_asbestos:
+                    return False, "Rule requires asbestos exposure"
+        
+        # CHECK 4: Anatomical precision - upper abdominal vs abdominal
+        if "upper abdominal" in rule_text:
+            has_upper_abdominal = any("upper abdominal" in s for s in symptoms_lower)
+            has_generic_abdominal = any("abdominal" in s and "upper" not in s for s in symptoms_lower)
+            if has_generic_abdominal and not has_upper_abdominal:
+                return False, "Rule requires 'upper abdominal', patient has general 'abdominal'"
+        
+        # CHECK 5: Prevent age-only matches for symptom-focused rules
+        # Check if the rule matched on ONLY age (no symptom matched the rule's criteria)
+        symptom_keywords_in_rule = ["symptom", "present", "with", "if they have", "lump", "pain", "bleeding", "mass"]
+        rule_requires_symptoms = any(kw in rule_text for kw in symptom_keywords_in_rule)
+        
+        if rule_requires_symptoms:
+            # Check if ANY of the patient's symptoms actually appear in the rule text
+            patient_symptom_matched = False
+            for symptom in symptoms_lower:
+                # Extract key symptom words
+                symptom_words = symptom.replace('-', ' ').split()
+                for word in symptom_words:
+                    if len(word) > 3 and word in rule_text:
+                        patient_symptom_matched = True
+                        break
+            
+            if not patient_symptom_matched:
+                return False, "Rule requires symptoms that patient does not have"
+        
+        # CHECK 6: Rules requiring specific findings (e.g., low haemoglobin)
+        if "low haemoglobin" in rule_text or "low hemoglobin" in rule_text:
+            has_anaemia = any("anaemia" in f or "anemia" in f or "haemoglobin" in f for f in findings_lower)
+            if not has_anaemia:
+                return False, "Rule requires low haemoglobin/anaemia"
+        
+        # CHECK 7: "Vague" or "non-specific" symptoms shouldn't match specific requirements
+        if any("vague" in s or "non-specific" in s or "mild" in s for s in symptoms_lower):
+            # If patient has vague symptoms, be extra cautious about specific requirements
+            specific_requirements = ["persistent", "unexplained", "severe", "acute"]
+            for req in specific_requirements:
+                if req in rule_text:
+                    # Check if the patient's symptom has this qualifier
+                    vague_symptoms = [s for s in symptoms_lower if "vague" in s or "non-specific" in s or "mild" in s]
+                    if vague_symptoms:
+                        return False, f"Rule requires '{req}' symptoms, patient has vague/mild symptoms"
+        
+        return True, ""
     
     def _check_age_constraint(
         self,

@@ -232,6 +232,7 @@ class CustomChatService:
             "Rule engine processed message",
             conversation_id=str(conversation_id),
             response_type=response_type.value,
+            query_type=result.query_type,
             matches_count=len(result.matches),
             full_matches=sum(1 for m in result.matches if m.match_type == "full"),
             artifacts_count=len(artifacts),
@@ -246,6 +247,7 @@ class CustomChatService:
             artifacts=artifacts,
             follow_up_questions=[],
             processing_time_ms=processing_time,
+            query_type=result.query_type,
         )
     
     async def _process_with_legacy_pipeline(

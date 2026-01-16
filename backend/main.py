@@ -419,7 +419,9 @@ def register_routes(app: FastAPI) -> None:
         from fastapi.responses import PlainTextResponse
         
         try:
-            doc_path = Path(__file__).parent.parent / "data" / "final.md"
+            # Data folder is at project root, not in backend
+            project_root = Path(__file__).parent.parent
+            doc_path = project_root / "data" / "final.md"
             if not doc_path.exists():
                 raise HTTPException(status_code=404, detail="Document not found")
             
@@ -448,8 +450,9 @@ def register_routes(app: FastAPI) -> None:
             section_path: Section path to find (e.g., "NG12 > Upper gastrointestinal tract cancers")
         """
         try:
-            # Load the document
-            doc_path = Path(__file__).parent.parent / "data" / "final.md"
+            # Load the document - data folder is at project root, not in backend
+            project_root = Path(__file__).parent.parent
+            doc_path = project_root / "data" / "final.md"
             if not doc_path.exists():
                 raise HTTPException(status_code=404, detail="Document not found")
             

@@ -105,6 +105,107 @@ class SafetyGate:
         return True, None
 
 
+class QueryClassifier:
+    """
+    Classify queries as either:
+    1. GENERAL - Questions about NG12 guideline itself → route to RAG
+    2. CLINICAL - Patient-specific clinical questions → route to Rule Engine
+    
+    Uses a fast LLM call to classify before processing.
+    """
+    
+    CLASSIFICATION_PROMPT = """Classify this query into ONE of two categories:
+
+GENERAL: Questions about the NG12 guideline itself, its structure, scope, or general information.
+Examples: "What is NG12?", "What cancers does NG12 cover?", "How is urgent referral defined?"
+
+CLINICAL: Questions about a specific patient that require clinical evaluation and referral guidance.
+Examples: "50-year-old with haemoptysis", "Patient has breast lump", "45yo with visible haematuria"
+
+Query: {query}
+
+Respond with ONLY one word: GENERAL or CLINICAL"""
+
+    def __init__(self):
+        settings = get_settings()
+        self.client = AsyncOpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url="https://api.deepseek.com",
+        )
+    
+    async def classify(self, query: str) -> Literal["general", "clinical"]:
+        """
+        Classify a query as general or clinical.
+        
+        Returns:
+            "general" for NG12 info questions → route to RAG
+            "clinical" for patient questions → route to Rule Engine
+        """
+        # Quick heuristics for obvious cases
+        query_lower = query.lower()
+        
+        # Clear clinical indicators (patient demographics, symptoms with context)
+        clinical_patterns = [
+            r"\d+[\s-]*year",  # age patterns
+            r"\d+\s*yo",
+            r"patient\s+(is|has|with|presents)",
+            r"(male|female)\s+with",
+            r"(man|woman)\s+with",
+            r"presenting\s+with",
+        ]
+        
+        import re
+        for pattern in clinical_patterns:
+            if re.search(pattern, query_lower):
+                logger.debug("Query classified as clinical (heuristic)", pattern=pattern)
+                return "clinical"
+        
+        # Clear general indicators
+        general_patterns = [
+            "what is ng12",
+            "what does ng12",
+            "what cancers",
+            "how is .* defined",
+            "what is .* referral",
+            "explain ng12",
+            "tell me about ng12",
+            "scope of ng12",
+            "ng12 guideline",
+            "what is 2ww",
+            "what is two week wait",
+        ]
+        
+        for pattern in general_patterns:
+            if re.search(pattern, query_lower):
+                logger.debug("Query classified as general (heuristic)", pattern=pattern)
+                return "general"
+        
+        # Ambiguous - use LLM
+        try:
+            response = await self.client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[{
+                    "role": "user",
+                    "content": self.CLASSIFICATION_PROMPT.format(query=query)
+                }],
+                temperature=0,
+                max_tokens=10,
+            )
+            
+            result = response.choices[0].message.content.strip().lower()
+            
+            if "general" in result:
+                logger.info("Query classified as general (LLM)", query=query[:50])
+                return "general"
+            else:
+                logger.info("Query classified as clinical (LLM)", query=query[:50])
+                return "clinical"
+                
+        except Exception as e:
+            logger.warning("Classification failed, defaulting to clinical", error=str(e))
+            return "clinical"  # Default to clinical (safer - more specific handling)
+
+
 class ConversationMemory:
     """Manage conversation state and fact accumulation."""
     
@@ -433,15 +534,20 @@ Query: {query}"""
 class RuleEngine:
     """
     Main orchestrator for the Document-Native Rule Engine.
-    
-    Replaces the LangGraph pipeline with a simpler, more deterministic flow:
+
+    Routes queries to appropriate handler:
+    1. GENERAL questions about NG12 → RAG pipeline
+    2. CLINICAL patient questions → Rule matching pipeline
+
+    Clinical pipeline flow:
     1. Safety gate (deterministic)
     2. Fact extraction (LLM)
     3. Rule matching (deterministic)
     4. Response generation (LLM)
     """
-    
+
     def __init__(self):
+        self.classifier = QueryClassifier()
         self.safety_gate = SafetyGate()
         self.memory = ConversationMemory()
         self.extractor = get_fact_extractor()
@@ -449,23 +555,102 @@ class RuleEngine:
         self.terms = get_terms_index()
         self.generator = ResponseGenerator()
         
+        # Lazy load RAG service
+        self._rag_service = None
+
         logger.info("Rule engine initialized")
     
+    @property
+    def rag_service(self):
+        """Lazy load RAG service to avoid circular imports."""
+        if self._rag_service is None:
+            from services.rag_chat_service import get_rag_chat_service
+            self._rag_service = get_rag_chat_service()
+        return self._rag_service
+
     async def process(
         self,
         query: str,
         conversation_id: str | None = None,
     ) -> RuleEngineResponse:
         """
-        Process a query through the rule engine.
-        
+        Process a query through the appropriate pipeline.
+
         Args:
             query: User's natural language query
             conversation_id: Optional conversation ID for memory
-            
+
         Returns:
             RuleEngineResponse with response, facts, matches, and artifacts
         """
+        # Step 1: Classify the query
+        query_type = await self.classifier.classify(query)
+        
+        if query_type == "general":
+            return await self._process_general_query(query, conversation_id)
+        
+        # Clinical query - continue with rule engine
+        return await self._process_clinical_query(query, conversation_id)
+    
+    async def _process_general_query(
+        self,
+        query: str,
+        conversation_id: str | None = None,
+    ) -> RuleEngineResponse:
+        """Route general NG12 questions to RAG pipeline."""
+        logger.info("Routing to RAG pipeline", query=query[:50])
+        
+        try:
+            from models.models import ChatRequest
+            from uuid import UUID
+            
+            # Create RAG request
+            conv_id = UUID(conversation_id) if conversation_id else None
+            request = ChatRequest(
+                message=query,
+                conversation_id=conv_id,
+            )
+            
+            # Call RAG service
+            rag_response = await self.rag_service.process_message(request)
+            
+            # Convert RAG response to RuleEngineResponse format
+            artifacts = []
+            for artifact in rag_response.artifacts:
+                artifacts.append(Artifact(
+                    rule_id=artifact.rule_id,
+                    section=artifact.section,
+                    content=artifact.content,
+                    relevance_score=artifact.relevance_score,
+                    source="NG12",
+                ))
+            
+            return RuleEngineResponse(
+                response=rag_response.message,
+                facts=ExtractedFacts(raw_query=query),  # Empty facts for general queries
+                matches=[],
+                artifacts=artifacts,
+                citations=[artifact.section for artifact in artifacts[:3]],
+                query_type="general",
+            )
+            
+        except Exception as e:
+            logger.error("RAG pipeline failed", error=str(e))
+            return RuleEngineResponse(
+                response="I apologize, but I encountered an error retrieving guideline information. Please try again.",
+                facts=ExtractedFacts(raw_query=query),
+                matches=[],
+                artifacts=[],
+                citations=[],
+                query_type="general",
+            )
+    
+    async def _process_clinical_query(
+        self,
+        query: str,
+        conversation_id: str | None = None,
+    ) -> RuleEngineResponse:
+        """Process clinical patient queries through rule matching."""
         # Get or create conversation state
         state = None
         if conversation_id:
@@ -480,7 +665,9 @@ class RuleEngine:
                 facts=ExtractedFacts(raw_query=query),
                 matches=[],
                 artifacts=[],
+                citations=[],
                 conversation_id=conversation_id,
+                query_type="clinical",
             )
             if state:
                 self.memory.add_turn(state, query, ExtractedFacts(raw_query=query), [], fail_response, "fail_closed")
@@ -504,7 +691,9 @@ class RuleEngine:
                 facts=merged_facts,
                 matches=[],
                 artifacts=[],
+                citations=[],
                 conversation_id=conversation_id,
+                query_type="clinical",
             )
             if state:
                 self.memory.add_turn(state, query, current_facts, [], age_clarification, "clarification")
@@ -557,7 +746,9 @@ class RuleEngine:
             facts=merged_facts,
             matches=matches,
             artifacts=artifacts,
+            citations=[m.rule.rule_id for m in full_matches[:5]] if full_matches else [],
             conversation_id=conversation_id,
+            query_type="clinical",
         )
     
     def _needs_intake(self, facts: ExtractedFacts, matches: list[MatchResult]) -> bool:

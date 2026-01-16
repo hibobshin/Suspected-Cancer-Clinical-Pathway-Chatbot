@@ -246,9 +246,11 @@ class RuleEngineResponse(BaseModel):
     """Response from the rule engine."""
     response: str | IntakeRequest = Field(..., description="Response text or intake request")
     response_type: Literal["answer", "clarification", "intake_form", "fail_closed"] = Field(
-        ..., description="Type of response"
+        default="answer", description="Type of response"
     )
     facts: ExtractedFacts = Field(..., description="Extracted/accumulated facts")
     matches: list[MatchResult] = Field(default_factory=list, description="Matched rules")
     artifacts: list[Artifact] = Field(default_factory=list, description="Citation artifacts")
+    citations: list[str] = Field(default_factory=list, description="Citation strings")
     conversation_id: str | None = Field(default=None, description="Conversation ID if using memory")
+    query_type: Literal["general", "clinical"] = Field(default="clinical", description="Query classification")

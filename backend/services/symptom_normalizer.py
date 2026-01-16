@@ -168,6 +168,16 @@ class SymptomNormalizer:
         
         user_symptom = user_symptom.lower().strip()
         
+        # SAFETY: Don't normalize vague/non-specific symptoms to specific ones
+        vague_qualifiers = ["vague", "non-specific", "nonspecific", "mild", "slight", "minor"]
+        is_vague = any(q in user_symptom for q in vague_qualifiers)
+        
+        if is_vague:
+            # For vague symptoms, only allow exact matches or very close synonyms
+            logger.debug("Vague symptom detected, requiring stricter matching", symptom=user_symptom)
+            # Return as-is without normalization - let the matcher handle it
+            return (user_symptom, 0.5)  # Low confidence indicates it's not normalized
+        
         # Check for exact match first (fast path)
         if user_symptom in self.canonical_map:
             canonical = self.canonical_map[user_symptom]

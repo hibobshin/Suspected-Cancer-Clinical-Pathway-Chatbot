@@ -45,25 +45,29 @@ class FactExtractor:
 {{
   "age": <integer or null if not mentioned>,
   "gender": <"male" or "female" or null>,
-  "symptoms": [<list of symptoms mentioned>],
-  "findings": [<list of test/exam findings>],
-  "history": [<list of history items like smoking, family history>]
+  "symptoms": [<list of symptoms as stated, with anatomical location preserved>],
+  "findings": [<list of test/exam findings like anaemia, raised platelets>],
+  "history": [<list of history items: smoking, asbestos exposure, family history>]
 }}
 
-RULES:
-- Extract age as integer (e.g., "52-year-old" → 52, "patient is 45" → 45)
-- Infer gender from anatomy if not explicit:
-  - vulval, vaginal, cervical, ovarian, uterine, breast → female
-  - prostate, testicular, scrotal, penile → male
-- Normalize symptoms to medical terms:
-  - "coughing up blood" → "haemoptysis"
-  - "blood in urine" → "haematuria"
-  - "difficulty swallowing" → "dysphagia"
-  - "indigestion" → "dyspepsia"
-- Fix obvious typos: "haemoptsis" → "haemoptysis", "vuval" → "vulval"
-- Only extract explicitly mentioned facts - do NOT infer or assume
-- findings = test results, X-ray findings, scan results
-- history = smoking, asbestos, alcohol, family history
+CRITICAL RULES (SAFETY):
+- PRESERVE anatomical location exactly:
+  - "upper abdominal pain" ≠ "abdominal pain" ≠ "lower abdominal pain"
+  - Do NOT generalize "vague abdominal discomfort" to "abdominal pain"
+- PRESERVE qualifiers: "vague", "mild", "persistent", "unexplained"
+- Do NOT upgrade symptoms: "discomfort" ≠ "pain"
+- Extract ONLY explicitly stated facts - NEVER infer or assume
+- Anaemia, low haemoglobin, raised platelets → findings (not symptoms)
+
+ALLOWED normalizations (typos and synonyms only):
+- "coughing up blood" → "haemoptysis"
+- "blood in urine" → "haematuria"
+- "difficulty swallowing" → "dysphagia"
+- "haemoptsis" → "haemoptysis" (typo fix)
+
+GENDER inference from anatomy:
+- vulval, vaginal, cervical, ovarian, uterine → female
+- prostate, testicular, scrotal, penile → male
 
 Query: {query}
 

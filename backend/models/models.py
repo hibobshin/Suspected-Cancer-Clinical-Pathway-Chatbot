@@ -187,6 +187,7 @@ class ChatResponse(BaseModel):
     )
     processing_time_ms: int = Field(..., ge=0, description="Processing time in milliseconds")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+    query_type: str | None = Field(default=None, description="Query classification: 'general' or 'clinical'")
 
 
 class HealthStatus(str, Enum):

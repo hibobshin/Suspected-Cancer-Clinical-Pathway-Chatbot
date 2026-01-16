@@ -99,18 +99,18 @@ We have used the terms 'men' and 'women' in some recommendations on gender-relat
 
 ## Who is it for?
 
-*   Healthcare professionals
-*   People involved in clinical governance in both primary and secondary care
-*   People with suspected cancer and their families and/or carers.
+* Healthcare professionals
+* People involved in clinical governance in both primary and secondary care
+* People with suspected cancer and their families and/or carers.
 # Introduction
 
 ## Safeguarding children
 
 Remember that child maltreatment:
 
-*   is common
-*   can present anywhere
-*   may co-exist with other health problems, including suspected cancer.
+* is common
+* can present anywhere
+* may co-exist with other health problems, including suspected cancer.
 
 See NICE's guideline on child maltreatment for clinical features that may be associated with maltreatment.
 
@@ -143,6 +143,7 @@ NICE began using standard wording to denote the strength of recommendations in g
 * chest pain
 * weight loss
 * appetite loss. [2015]
+
 1.1.3 Consider an urgent chest X-ray (to be done within 2 weeks) to assess for lung cancer in people aged 40 and over with any of the following:
 * <u>persistent</u> or recurrent chest infection
 * finger clubbing
@@ -155,8 +156,8 @@ NICE began using standard wording to denote the strength of recommendations in g
 1.1.4 Refer people using a <u>suspected cancer pathway referral</u> for mesothelioma if they have chest X-ray findings that suggest mesothelioma. [2015]
 
 1.1.5 Offer an urgent chest X-ray (to be done within 2 weeks) to assess for mesothelioma in people aged 40 and over, if:
-* they have 2 or more of the following unexplained symptoms **or**
-* they have 1 or more of the following unexplained symptoms and have ever smoked **or**
+* they have 2 or more of the following unexplained symptoms or
+* they have 1 or more of the following unexplained symptoms and have ever smoked or
 * they have 1 or more of the following unexplained symptoms and have been exposed to asbestos:
     - cough
     - fatigue
@@ -164,6 +165,7 @@ NICE began using standard wording to denote the strength of recommendations in g
     - chest pain
     - weight loss
     - appetite loss. [2015]
+
 1.1.6 Consider an urgent chest X-ray (to be done within 2 weeks) to assess for mesothelioma in people aged 40 and over with either:
 * finger clubbing or
 * chest signs compatible with pleural disease. [2015]
@@ -181,17 +183,17 @@ NICE began using standard wording to denote the strength of recommendations in g
 
 1.2.2 Consider _non-urgent, direct access_ upper gastrointestinal endoscopy to assess for oesophageal cancer in people with haematemesis. [2015]
 
-1.2.3 Consider _non-urgent, direct access_ upper gastrointestinal endoscopy to assess for oesophageal cancer in people aged 55 or over with:
+1.2.3 Consider *non-urgent, direct access* upper gastrointestinal endoscopy to assess for oesophageal cancer in people aged 55 or over with:
 * treatment-resistant dyspepsia or
 * upper abdominal pain with low haemoglobin levels or
 * raised platelet count with any of the following:
     - nausea
     - vomiting
-- weight loss
-- reflux
-- dyspepsia
-- upper abdominal pain or
-• nausea or vomiting with any of the following:
+    - weight loss
+    - reflux
+    - dyspepsia
+    - upper abdominal pain or
+* nausea or vomiting with any of the following:
     - weight loss
     - reflux
     - dyspepsia
@@ -202,41 +204,42 @@ NICE began using standard wording to denote the strength of recommendations in g
 1.2.4 Refer people using a suspected cancer pathway referral for pancreatic cancer if they are aged 40 and over and have jaundice. [2015]
 
 1.2.5 Consider an urgent, direct access CT scan (to be done within 2 weeks), or an urgent ultrasound scan if CT is not available, to assess for pancreatic cancer in people aged 60 and over with weight loss and any of the following:
-    • diarrhoea
-    • back pain
-    • abdominal pain
-    • nausea
-    • vomiting
-    • constipation
-    • new-onset diabetes. [2015]
+    - diarrhoea
+    - back pain
+    - abdominal pain
+    - nausea
+    - vomiting
+    - constipation
+    - new-onset diabetes. [2015]
+
 ### Stomach cancer
 
-1.2.6 Consider a suspected cancer pathway referral for people with an upper abdominal mass consistent with stomach cancer. **[2015]**
+1.2.6 Consider a suspected cancer pathway referral for people with an upper abdominal mass consistent with stomach cancer. [2015]
 
 1.2.7 Refer people using a suspected cancer pathway referral for stomach cancer if they:
-* have dysphagia **or**
+* have dysphagia or
 * are aged 55 and over, with weight loss, and they have any of the following:
     - upper abdominal pain
     - reflux
-    - dyspepsia. **[2015, amended 2025]**
+    - dyspepsia. [2015, amended 2025]
 
-1.2.8 Consider non-urgent, direct access upper gastrointestinal endoscopy to assess for stomach cancer in people with haematemesis. **[2015]**
+1.2.8 Consider non-urgent, direct access upper gastrointestinal endoscopy to assess for stomach cancer in people with haematemesis. [2015]
 
 1.2.9 Consider non-urgent, direct access upper gastrointestinal endoscopy to assess for stomach cancer in people aged 55 or over with:
-* treatment-resistant dyspepsia **or**
-* upper abdominal pain with low haemoglobin levels **or**
+* treatment-resistant dyspepsia or
+* upper abdominal pain with low haemoglobin levels or
 * raised platelet count with any of the following:
     - nausea
     - vomiting
     - weight loss
     - reflux
     - dyspepsia
-    - upper abdominal pain **or**
-*   nausea or vomiting with any of the following:
-    *   weight loss
-    *   reflux
-    *   dyspepsia
-    *   upper abdominal pain. [2015]
+    - upper abdominal pain or
+* nausea or vomiting with any of the following:
+    - weight loss
+    - reflux
+    - dyspepsia
+    - upper abdominal pain. [2015]
 
 ### Gall bladder cancer
 
@@ -253,26 +256,26 @@ NICE began using standard wording to denote the strength of recommendations in g
 > Recommendations 1.3.1 to 1.3.4 are adapted from NICE's diagnostics guidance on quantitative faecal immunochemical testing to guide colorectal cancer pathway referral in primary care.
 
 1.3.1 Offer quantitative faecal immunochemical testing (FIT) using HM-JACKarc or OC-Sensor to guide referral for suspected colorectal cancer in adults:
-*   with an abdominal mass **or**
-*   with a change in bowel habit **or**
-*   with iron-deficiency anaemia **or**
-*   aged 40 and over with unexplained weight loss and abdominal pain **or**
-*   aged under 50 with rectal bleeding and either of the following unexplained symptoms:
+* with an abdominal mass or
+* with a change in bowel habit or
+* with iron-deficiency anaemia or
+* aged 40 and over with unexplained weight loss and abdominal pain or
+* aged under 50 with rectal bleeding and either of the following unexplained symptoms:
     - abdominal pain
-    - weight loss **or**
-*   aged 50 and over with any of the following unexplained symptoms:
+    - weight loss or
+* aged 50 and over with any of the following unexplained symptoms:
     - rectal bleeding
     - abdominal pain
-    - weight loss **or**
-*   aged 60 and over with anaemia even in the absence of iron deficiency.
+    - weight loss or
+* aged 60 and over with anaemia even in the absence of iron deficiency.
 
 FIT should be offered even if the person has previously had a negative FIT result through the [NHS bowel cancer screening programme](https://www.nhs.uk/conditions/bowel-cancer-screening/). People with a rectal mass, an unexplained anal mass or unexplained anal ulceration do not need to be offered FIT before referral is considered. [2023]
 
 1.3.2 Refer adults using a suspected cancer pathway referral for colorectal cancer if they have a FIT result of at least 10 micrograms of haemoglobin per gram of faeces. [2023]
 
 1.3.3 For people who have not returned a faecal sample or who have a FIT result below 10 micrograms of haemoglobin per gram of faeces:
-*   safety netting processes should be in place
-*   referral to an appropriate secondary care pathway should not be delayed if there is strong clinical concern of cancer because of ongoing unexplained symptoms (for example, abdominal mass). [2023]
+* safety netting processes should be in place
+* referral to an appropriate secondary care pathway should not be delayed if there is strong clinical concern of cancer because of ongoing unexplained symptoms (for example, abdominal mass). [2023]
 
 1.3.4 Clinicians should consider if people need additional help, information or support to return their sample. [2023]
 
@@ -303,17 +306,17 @@ FIT should be offered even if the person has previously had a negative FIT resul
 
 The recommendations in this section have been incorporated from [NICE's guideline on ovarian cancer](https://www.nice.org.uk/guidance/cg122) and have not been updated. The recommendations for ovarian cancer apply to women aged 18 and over.
 
-1.5.1 Make a referral to a gynaecological cancer service using a suspected cancer pathway referral if physical examination identifies ascites and/or a pelvic or abdominal mass (which is not obviously uterine fibroids). **[2011, amended 2020]**
+1.5.1 Make a referral to a gynaecological cancer service using a suspected cancer pathway referral if physical examination identifies ascites and/or a pelvic or abdominal mass (which is not obviously uterine fibroids). [2011, amended 2020]
 
 1.5.2 Carry out tests in primary care (see recommendations 1.5.6 to 1.5.9) if a woman (especially if aged 50 or over) reports having any of the following symptoms on a persistent or frequent basis – particularly more than 12 times per month:
 * persistent abdominal distension (women often refer to this as 'bloating')
 * feeling full (early satiety) and/or loss of appetite
 * pelvic or abdominal pain
-* increased urinary urgency and/or frequency. **[2011]**
+* increased urinary urgency and/or frequency. [2011]
 
-1.5.3 Consider carrying out tests in primary care (see recommendations 1.5.6 to 1.5.9) if a woman reports unexplained weight loss, fatigue or changes in bowel habit. **[2011]**
+1.5.3 Consider carrying out tests in primary care (see recommendations 1.5.6 to 1.5.9) if a woman reports unexplained weight loss, fatigue or changes in bowel habit. [2011]
 
-1.5.4 Advise any woman who is not suspected of having ovarian cancer to return to her GP if her symptoms become more frequent and/or persistent. **[2011]**
+1.5.4 Advise any woman who is not suspected of having ovarian cancer to return to her GP if her symptoms become more frequent and/or persistent. [2011]
 
 1.5.5 Carry out appropriate tests for ovarian cancer (see recommendations 1.5.6 to 1.5.9) in any woman aged 50 or over who has experienced symptoms within the last 12 months that suggest irritable bowel syndrome (IBS), because IBS rarely presents for the first time in women of this age. (See NICE's guideline on irritable bowel syndrome in adults). [2011]
 
@@ -335,9 +338,9 @@ The recommendations in this section have been incorporated from [NICE's guidelin
 
 1.5.12 Consider a _direct access ultrasound scan_ to assess for endometrial cancer in women aged 55 and over with:
 * unexplained symptoms of vaginal discharge who:
-    - are presenting with these symptoms for the first time **or**
-- have thrombocytosis or
-- report haematuria or
+    - are presenting with these symptoms for the first time or
+    - have thrombocytosis or
+    - report haematuria or
 * visible haematuria and:
     - low haemoglobin levels or
     - thrombocytosis or
@@ -360,6 +363,7 @@ The recommendations in this section have been incorporated from [NICE's guidelin
 ### Prostate cancer
 
 1.6.1 Refer people using a suspected cancer pathway referral for prostate cancer if their prostate feels malignant on digital rectal examination. [2015]
+
 1.6.2 Consider a prostate-specific antigen (PSA) test and digital rectal examination to assess for prostate cancer in people with:
 * any lower urinary tract symptoms, such as nocturia, urinary frequency, hesitancy, urgency or retention or
 * erectile dysfunction or
@@ -407,13 +411,13 @@ Table 1 Age-specific PSA thresholds for people with possible symptoms of prostat
 For a short explanation of why the committee made the 2021 recommendation and how it might affect practice, see the rationale and impact section on PSA testing for prostate cancer.
 
 Full details of the evidence and the committee's discussion are in evidence review A: PSA testing for prostate cancer.
+
 ### Bladder cancer
 
 1.6.4 Refer people using a _suspected cancer pathway referral_ for bladder cancer if they are:
-
 * aged 45 and over and have:
-    - _unexplained_ visible haematuria without urinary tract infection **or**
-    - visible haematuria that persists or recurs after successful treatment of urinary tract infection **or**
+    - _unexplained_ visible haematuria without urinary tract infection or
+    - visible haematuria that persists or recurs after successful treatment of urinary tract infection or
 * aged 60 and over and have unexplained non-visible haematuria and either dysuria or a raised white cell count on a blood test. [2015]
 
 1.6.5 Consider _non-urgent_ referral for bladder cancer in people aged 60 and over with recurrent or _persistent_ unexplained urinary tract infection. [2015]
@@ -421,8 +425,7 @@ Full details of the evidence and the committee's discussion are in evidence revi
 ### Renal cancer
 
 1.6.6 Refer people using a _suspected cancer pathway referral_ for renal cancer if they are aged 45 and over and have:
-
-* unexplained visible haematuria without urinary tract infection **or**
+* unexplained visible haematuria without urinary tract infection or
 * visible haematuria that persists or recurs after successful treatment of urinary tract infection. [2015]
 
 ### Testicular cancer
@@ -446,17 +449,15 @@ Full details of the evidence and the committee's discussion are in evidence revi
 ### Weighted 7-point checklist
 
 Major features of the lesions (scoring 2 points each):
-
-*   change in size
-*   irregular shape
-*   irregular colour.
+* change in size
+* irregular shape
+* irregular colour.
 
 Minor features of the lesions (scoring 1 point each):
-
-*   largest diameter 7 mm or more
-*   inflammation
-*   oozing
-*   change in sensation.
+* largest diameter 7 mm or more
+* inflammation
+* oozing
+* change in sensation.
 
 1.7.2 Refer people using a suspected cancer pathway referral if dermoscopy suggests melanoma of the skin. [2015]
 
@@ -479,26 +480,22 @@ Minor features of the lesions (scoring 1 point each):
 ### Laryngeal cancer
 
 1.8.1 Consider a suspected cancer pathway referral for laryngeal cancer in people aged 45 and over with:
-
-*   persistent unexplained hoarseness or
-*   an unexplained lump in the neck. [2015]
+* persistent unexplained hoarseness or
+* an unexplained lump in the neck. [2015]
 
 ### Oral cancer
 
 1.8.2 Consider a suspected cancer pathway referral for oral cancer in people with either:
-
-*   unexplained ulceration in the oral cavity lasting for more than 3 weeks or
-*   a persistent and unexplained lump in the neck. [2015]
+* unexplained ulceration in the oral cavity lasting for more than 3 weeks or
+* a persistent and unexplained lump in the neck. [2015]
 
 1.8.3 Consider an urgent referral (for an appointment within 2 weeks) for assessment for possible oral cancer by a dentist in people who have either:
-
-*   a lump on the lip or in the oral cavity or
-*   a red or red and white patch in the oral cavity consistent with erythroplakia or erythroleukoplakia. [2015]
+* a lump on the lip or in the oral cavity or
+* a red or red and white patch in the oral cavity consistent with erythroplakia or erythroleukoplakia. [2015]
 
 1.8.4 Consider a suspected cancer pathway referral by the dentist for oral cancer in people when assessed by a dentist as having either:
-
-*   a lump on the lip or in the oral cavity consistent with oral cancer or
-*   a red or red and white patch in the oral cavity consistent with erythroplakia or erythroleukoplakia. [2015]
+* a lump on the lip or in the oral cavity consistent with oral cancer or
+* a red or red and white patch in the oral cavity consistent with erythroplakia or erythroleukoplakia. [2015]
 
 ### Thyroid cancer
 
@@ -538,26 +535,27 @@ Minor features of the lesions (scoring 1 point each):
 * persistent fatigue
 * unexplained fever
 * unexplained persistent infection
-*   generalised lymphadenopathy
-*   persistent or unexplained bone pain
-*   unexplained bruising
-*   unexplained bleeding. **[2015]**
+* generalised lymphadenopathy
+* persistent or unexplained bone pain
+* unexplained bruising
+* unexplained bleeding. [2015]
 
 ### Myeloma
 
 1.10.4 Offer the following to assess for myeloma in people aged 60 and over with persistent bone pain, particularly back pain, or unexplained fracture:
-    *   a full blood count and
-    *   blood tests for:
-        *   calcium
-        *   plasma viscosity or erythrocyte sedimentation rate
-        *   paraprotein, using serum protein electrophoresis
-        *   free light chains contained in serum.
+* a full blood count and
+* blood tests for:
+    - calcium
+    - plasma viscosity or erythrocyte sedimentation rate
+    - paraprotein, using serum protein electrophoresis
+    - free light chains contained in serum.
 
-        If serum free light chain testing is not available, use a Bence–Jones test to check for free light chains contained in urine. **[2015, amended 2025]**
+If serum free light chain testing is not available, use a Bence–Jones test to check for free light chains contained in urine. [2015, amended 2025]
 
-1.10.5 Consider the blood tests outlined in recommendation 1.10.4 for people aged under 60 with persistent bone pain, particularly back pain, or unexplained fracture. **[2015, amended 2025]**
+1.10.5 Consider the blood tests outlined in recommendation 1.10.4 for people aged under 60 with persistent bone pain, particularly back pain, or unexplained fracture. [2015, amended 2025]
 
-1.10.6 Refer people using a suspected cancer pathway referral if the results of the blood tests outlined in recommendation 1.10.4 suggest myeloma. **[2015, amended 2025]**
+1.10.6 Refer people using a suspected cancer pathway referral if the results of the blood tests outlined in recommendation 1.10.4 suggest myeloma. [2015, amended 2025]
+
 ### Non-Hodgkin's lymphoma
 
 Separate recommendations have been made for adults and for children and young people to reflect that there are different referral pathways. In practice young people (aged 16 to 24) may be referred using either pathway depending on their age and local arrangements.
@@ -618,13 +616,13 @@ NICE has published a guideline on babies, children and young people's experience
 ### Retinoblastoma
 
 1.12.2 Consider referral for ophthalmological assessment using a suspected cancer pathway referral for retinoblastoma in children with an absent fundal ('red') reflex. If there is new-onset squint that occurs together with an absent fundal ('red') reflex, see the recommendation on new-onset squint with loss of fundal 'red' reflex in NICE's guideline on suspected neurological conditions. [2015]
+
 ### Wilms' tumour
 
 1.12.3 Consider very urgent referral (for an appointment within 48 hours) for specialist assessment for Wilms' tumour in children with any of the following:
-
-*   a palpable abdominal mass
-*   an unexplained enlarged abdominal organ
-*   unexplained visible haematuria. [2015]
+* a palpable abdominal mass
+* an unexplained enlarged abdominal organ
+* unexplained visible haematuria. [2015]
 
 ## 1.13 Non-site-specific symptoms
 
@@ -637,16 +635,16 @@ Some symptoms or symptom combinations may be features of several different cance
 ### Symptoms of concern in adults
 
 1.13.2 For people with unexplained weight loss, which is a symptom of several cancers including colorectal, gastro-oesophageal, lung, prostate, pancreatic and urological cancer:
+* carry out an assessment for additional symptoms, signs or findings that may help to clarify which cancer is most likely and
+* offer urgent investigation or a suspected cancer pathway referral. [2015]
 
-*   carry out an assessment for additional symptoms, signs or findings that may help to clarify which cancer is most likely and
-*   offer urgent investigation or a suspected cancer pathway referral. [2015]
 1.13.3 For people with unexplained appetite loss, which is a symptom of several cancers including lung, oesophageal, stomach, colorectal, pancreatic, bladder and renal cancer:
-*   carry out an assessment for additional symptoms, signs or findings that may help to clarify which cancer is most likely **and**
-*   offer urgent investigation or a suspected cancer pathway referral. [2015]
+* carry out an assessment for additional symptoms, signs or findings that may help to clarify which cancer is most likely and
+* offer urgent investigation or a suspected cancer pathway referral. [2015]
 
 1.13.4 For people with deep vein thrombosis, which is associated with several cancers including urogenital, breast, colorectal and lung cancer:
-*   carry out an assessment for additional symptoms, signs or findings that may help to clarify which cancer is most likely **and**
-*   consider urgent investigation or a suspected cancer pathway referral. [2015]
+* carry out an assessment for additional symptoms, signs or findings that may help to clarify which cancer is most likely and
+* consider urgent investigation or a suspected cancer pathway referral. [2015]
 # Recommendations on patient support, safety netting and the diagnostic process
 
 > Use this guideline to guide referrals. If still uncertain about whether a referral is needed, consider contacting a specialist (see the recommendations on the diagnostic process). Consider a review for people with any symptom associated with increased cancer risk who do not meet the criteria for referral or investigative action (see the recommendations on safety netting).
@@ -663,14 +661,14 @@ Some symptoms or symptom combinations may be features of several different cance
 
 1.14.5 The information given to people with suspected cancer and their families and/or carers should cover, among other issues:
 * where the person is being referred to
-*   how long they will have to wait for the appointment
-*   how to obtain further information about the type of cancer suspected or help before the specialist appointment
-*   what to expect from the service the person will be attending
-*   what type of tests may be carried out, and what will happen during diagnostic procedures
-*   how long it will take to get a diagnosis or test results
-*   whether they can take someone with them to the appointment
-*   who to contact if they do not receive confirmation of an appointment
-*   other sources of support. [2015]
+* how long they will have to wait for the appointment
+* how to obtain further information about the type of cancer suspected or help before the specialist appointment
+* what to expect from the service the person will be attending
+* what type of tests may be carried out, and what will happen during diagnostic procedures
+* how long it will take to get a diagnosis or test results
+* whether they can take someone with them to the appointment
+* who to contact if they do not receive confirmation of an appointment
+* other sources of support. [2015]
 
 1.14.6 Provide information that is appropriate for the person in terms of language, ability and culture, recognising the potential for different cultural meanings associated with the possibility of cancer. [2015]
 
@@ -1011,9 +1009,8 @@ See also the section on bleeding for recommendations on rectal bleeding.
 ## Bleeding
 
 See also:
-
-*   the section on urological symptoms for haematuria
-*   the section on primary care investigations for faecal occult blood.
+* the section on urological symptoms for haematuria
+* the section on primary care investigations for faecal occult blood.
 
 ### Bleeding, bruising or petechiae
 
@@ -2784,9 +2781,8 @@ A mass or lesion that has an appearance or a feel that makes the healthcare prof
 ## Safety netting
 
 The active monitoring in primary care of people who have presented with symptoms. It has 2 separate aspects:
-
-*   timely review and action after investigations
-*   active monitoring of symptoms in people at low risk (but not no risk) of having cancer to see if their risk of cancer changes.
+* timely review and action after investigations
+* active monitoring of symptoms in people at low risk (but not no risk) of having cancer to see if their risk of cancer changes.
 
 ## Suspected cancer pathway referral
 
@@ -2901,11 +2897,10 @@ June 2016: Recommendations in the section on colorectal cancer have been changed
 June 2015: This guideline updates and replaces NICE guideline CG27 (published June 2005).
 
 Recommendations are marked as [2021], [2020], [2015], [2011], [2011, amended 2020] or [2005]:
-
-*   [2021] indicated that the evidence has been reviewed and the recommendation has been updated in 2021.
-*   [2020] indicates that the evidence has been reviewed and the recommendation has been added or updated in 2020.
-*   [2011, amended 2020] indicates that the wording has been changed but the evidence has not been reviewed since 2020.
-*   [2015], [2005] or [2011] indicates the date that the evidence was last reviewed.
+* [2021] indicated that the evidence has been reviewed and the recommendation has been updated in 2021.
+* [2020] indicates that the evidence has been reviewed and the recommendation has been added or updated in 2020.
+* [2011, amended 2020] indicates that the wording has been changed but the evidence has not been reviewed since 2020.
+* [2015], [2005] or [2011] indicates the date that the evidence was last reviewed.
 
 ## Minor changes since publication
 

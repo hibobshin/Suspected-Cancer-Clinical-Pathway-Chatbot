@@ -25,9 +25,10 @@ from config.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Paths
-GUIDELINE_PATH = Path(__file__).parent.parent / "data" / "final.md"
-CACHE_DIR = Path(__file__).parent.parent / "data" / ".cache"
+# Paths - data folder is at project root, not in backend
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+GUIDELINE_PATH = PROJECT_ROOT / "data" / "final.md"
+CACHE_DIR = PROJECT_ROOT / "data" / ".cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Cache file paths
