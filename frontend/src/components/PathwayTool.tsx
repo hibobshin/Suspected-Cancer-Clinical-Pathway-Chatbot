@@ -10,12 +10,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
   User,
-  Cigarette,
   Stethoscope,
   CheckCircle2,
   AlertCircle,
   Loader2,
-  FileText,
+  ClipboardCheck,
+  ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import { compileRecommendation } from '@/lib/api';
 import type { PathwaySpec, PatientCriteria, Criterion, CompileResponse } from '@/types';
@@ -26,17 +27,13 @@ import { cn } from '@/lib/utils';
  */
 function formatVerbatimText(text: string): string {
   let formatted = text;
-  // Unescape HTML entities
   formatted = formatted.replace(/&lt;/g, '<');
   formatted = formatted.replace(/&gt;/g, '>');
   formatted = formatted.replace(/&amp;/g, '&');
-  // Convert <u> tags to underline spans
-  formatted = formatted.replace(/<u>/gi, '<span class="underline decoration-blue-400">');
+  formatted = formatted.replace(/<u>/gi, '<span class="underline decoration-primary-400 decoration-2">');
   formatted = formatted.replace(/<\/u>/gi, '</span>');
-  // Convert **bold** markdown
-  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-slate-100">$1</strong>');
-  // Convert bullet points
-  formatted = formatted.replace(/^\s*[-•*]\s+(.+)$/gm, '<span class="block ml-2">• $1</span>');
+  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-surface-100">$1</strong>');
+  formatted = formatted.replace(/^\s*[-•*]\s+(.+)$/gm, '<li class="ml-4">$1</li>');
   return formatted;
 }
 
@@ -45,16 +42,11 @@ function formatVerbatimText(text: string): string {
  */
 function cleanSymptomText(text: string): string {
   let cleaned = text;
-  // Unescape HTML entities
   cleaned = cleaned.replace(/&lt;/g, '<');
   cleaned = cleaned.replace(/&gt;/g, '>');
-  // Remove <u> tags but keep the content
   cleaned = cleaned.replace(/<\/?u>/gi, '');
-  // Remove trailing "or", "and", "who:", "and:", etc.
   cleaned = cleaned.replace(/\s+(or|and|who|with|that)\s*:?\s*$/i, '');
-  // Remove trailing punctuation
   cleaned = cleaned.replace(/[.,;:]+$/, '');
-  // Trim whitespace
   cleaned = cleaned.trim();
   return cleaned;
 }
@@ -65,7 +57,6 @@ interface PathwayToolProps {
   onCancel: () => void;
 }
 
-// Common symptoms from NG12 recommendations
 const COMMON_SYMPTOMS = [
   'cough',
   'fatigue',
@@ -86,7 +77,6 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Extract unique fields from criteria groups
   const fields = new Set<string>();
   spec.criteria_groups.forEach((group) => {
     group.criteria.forEach((c: Criterion) => {
@@ -94,7 +84,6 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
     });
   });
 
-  // Get available symptoms from criteria
   const getAvailableSymptoms = (): string[] => {
     for (const group of spec.criteria_groups) {
       for (const c of group.criteria) {
@@ -145,145 +134,169 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
     return true;
   };
 
-  // Check if this is a multi-recommendation check
   const recIds = spec.recommendation_id.split(',').map(r => r.trim());
   const isMultiRec = recIds.length > 1;
-  
-  // For multi-rec, show more verbatim text
-  const verbatimLimit = isMultiRec ? 600 : 300;
+  const verbatimLimit = isMultiRec ? 600 : 400;
+  const selectedCount = (criteria.symptoms || []).length;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 10 }}
-      className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 mt-4"
+      initial={{ opacity: 0, scale: 0.98, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.98, y: 8 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+      className="relative overflow-hidden bg-gradient-to-br from-surface-50 to-surface-100 border border-surface-200 rounded-2xl shadow-lg mt-4"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-blue-400" />
-          <h3 className="text-sm font-semibold text-slate-200">{spec.title}</h3>
-        </div>
-        <button
-          onClick={onCancel}
-          className="p-1 hover:bg-slate-700 rounded transition-colors"
-        >
-          <X className="w-4 h-4 text-slate-400" />
-        </button>
-      </div>
+      {/* Decorative gradient accent */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary-500 via-primary-400 to-primary-600" />
       
-      {/* Multiple Recommendations Badge */}
-      {isMultiRec && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          <span className="text-xs text-slate-400">Checking recommendations:</span>
+      {/* Header */}
+      <div className="px-5 pt-5 pb-4 border-b border-surface-200 bg-white/50">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-primary-100 rounded-xl">
+              <ClipboardCheck className="w-5 h-5 text-primary-600" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-surface-900">
+                Check Patient Criteria
+              </h3>
+              <p className="text-sm text-surface-500 mt-0.5">
+                Verify against NG12 recommendations
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            className="p-2 hover:bg-surface-100 rounded-lg transition-colors"
+          >
+            <X className="w-4 h-4 text-surface-400" />
+          </button>
+        </div>
+        
+        {/* Recommendation badges */}
+        <div className="flex flex-wrap gap-2 mt-4">
           {recIds.map((id) => (
             <span
               key={id}
-              className="px-2 py-0.5 bg-blue-600/20 border border-blue-500/30 rounded text-xs text-blue-300 font-medium"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-50 border border-primary-200 rounded-full text-xs font-medium text-primary-700"
             >
+              <Sparkles className="w-3 h-3" />
               NG12 {id}
             </span>
           ))}
         </div>
-      )}
+      </div>
 
       {/* Verbatim NG12 Text */}
-      <div 
-        className="mb-4 p-3 bg-slate-900/50 border-l-2 border-blue-500 rounded text-sm text-slate-300 italic max-h-48 overflow-y-auto"
-        dangerouslySetInnerHTML={{ 
-          __html: formatVerbatimText(spec.verbatim_text.slice(0, verbatimLimit) + (spec.verbatim_text.length > verbatimLimit ? '...' : ''))
-        }}
-      />
+      <div className="px-5 py-4 bg-surface-800 text-surface-200">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-1 h-4 bg-primary-500 rounded-full" />
+          <span className="text-xs font-medium text-surface-400 uppercase tracking-wide">
+            Guideline Text
+          </span>
+        </div>
+        <div 
+          className="text-sm leading-relaxed max-h-40 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-surface-600 scrollbar-track-surface-700"
+          dangerouslySetInnerHTML={{ 
+            __html: formatVerbatimText(spec.verbatim_text.slice(0, verbatimLimit) + (spec.verbatim_text.length > verbatimLimit ? '...' : ''))
+          }}
+        />
+      </div>
 
-      {/* Criteria Form */}
-      <div className="space-y-4">
+      {/* Form Section */}
+      <div className="px-5 py-5 space-y-5">
         {/* Age Field */}
         {fields.has('age') && (
-          <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <User className="w-4 h-4" />
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-surface-700">
+              <User className="w-4 h-4 text-surface-400" />
               Patient Age
             </label>
-            <input
-              type="number"
-              min={0}
-              max={120}
-              value={criteria.age || ''}
-              onChange={(e) =>
-                setCriteria({
-                  ...criteria,
-                  age: e.target.value ? parseInt(e.target.value) : undefined,
-                })
-              }
-              className="w-full bg-slate-900/50 border border-slate-600 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
-              placeholder="Enter patient age"
-            />
-          </div>
-        )}
-
-        {/* Smoking Status */}
-        {fields.has('smoking') && (
-          <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <Cigarette className="w-4 h-4" />
-              Smoking History
-            </label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCriteria({ ...criteria, smoking: true })}
-                className={cn(
-                  'flex-1 px-3 py-2 text-sm rounded border transition-colors',
-                  criteria.smoking
-                    ? 'bg-blue-600 border-blue-500 text-white'
-                    : 'bg-slate-900/50 border-slate-600 text-slate-300 hover:border-slate-500'
-                )}
-              >
-                Ever smoked
-              </button>
-              <button
-                onClick={() => setCriteria({ ...criteria, smoking: false })}
-                className={cn(
-                  'flex-1 px-3 py-2 text-sm rounded border transition-colors',
-                  !criteria.smoking
-                    ? 'bg-slate-700 border-slate-600 text-white'
-                    : 'bg-slate-900/50 border-slate-600 text-slate-300 hover:border-slate-500'
-                )}
-              >
-                Never smoked
-              </button>
+            <div className="relative">
+              <input
+                type="number"
+                min={0}
+                max={120}
+                value={criteria.age || ''}
+                onChange={(e) =>
+                  setCriteria({
+                    ...criteria,
+                    age: e.target.value ? parseInt(e.target.value) : undefined,
+                  })
+                }
+                className="w-full bg-white border border-surface-300 rounded-xl px-4 py-3 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-shadow"
+                placeholder="Enter age in years"
+              />
+              {criteria.age && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <CheckCircle2 className="w-5 h-5 text-green-500" />
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* Symptoms */}
         {fields.has('symptoms') && (
-          <div>
-            <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
-              <Stethoscope className="w-4 h-4" />
-              Unexplained Symptoms
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {availableSymptoms.map((symptom) => (
-                <button
-                  key={symptom}
-                  onClick={() => handleSymptomToggle(symptom)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs rounded-full border transition-colors',
-                    (criteria.symptoms || []).includes(symptom)
-                      ? 'bg-green-600/20 border-green-500 text-green-300'
-                      : 'bg-slate-900/50 border-slate-600 text-slate-400 hover:border-slate-500'
-                  )}
-                >
-                  {cleanSymptomText(symptom)}
-                </button>
-              ))}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm font-medium text-surface-700">
+                <Stethoscope className="w-4 h-4 text-surface-400" />
+                Presenting Symptoms
+              </label>
+              {selectedCount > 0 && (
+                <span className="text-xs font-medium text-primary-600 bg-primary-50 px-2.5 py-1 rounded-full">
+                  {selectedCount} selected
+                </span>
+              )}
             </div>
-            {(criteria.symptoms || []).length > 0 && (
-              <p className="mt-2 text-xs text-slate-400">
-                Selected: {(criteria.symptoms || []).map(s => cleanSymptomText(s)).join(', ')}
-              </p>
-            )}
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {availableSymptoms.map((symptom, index) => {
+                const isSelected = (criteria.symptoms || []).includes(symptom);
+                const cleanedText = cleanSymptomText(symptom);
+                
+                return (
+                  <motion.button
+                    key={symptom}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.03 }}
+                    onClick={() => handleSymptomToggle(symptom)}
+                    className={cn(
+                      'group relative flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all duration-200',
+                      isSelected
+                        ? 'bg-primary-50 border-primary-300 shadow-sm'
+                        : 'bg-white border-surface-200 hover:border-surface-300 hover:shadow-sm'
+                    )}
+                  >
+                    <div className={cn(
+                      'flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors',
+                      isSelected
+                        ? 'bg-primary-500 border-primary-500'
+                        : 'border-surface-300 group-hover:border-surface-400'
+                    )}>
+                      {isSelected && (
+                        <motion.div
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                        >
+                          <CheckCircle2 className="w-3 h-3 text-white" />
+                        </motion.div>
+                      )}
+                    </div>
+                    <span className={cn(
+                      'text-sm leading-tight',
+                      isSelected ? 'text-primary-800 font-medium' : 'text-surface-700'
+                    )}>
+                      {cleanedText}
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -295,19 +308,19 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="mt-4 p-3 bg-red-900/20 border border-red-700 rounded text-sm text-red-300 flex items-center gap-2"
+            className="mx-5 mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-3"
           >
-            <AlertCircle className="w-4 h-4" />
-            {error}
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+            <span>{error}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Actions */}
-      <div className="flex gap-3 mt-6">
+      <div className="px-5 pb-5 pt-2 flex gap-3">
         <button
           onClick={onCancel}
-          className="flex-1 px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+          className="flex-1 px-4 py-3 text-sm font-medium bg-surface-100 hover:bg-surface-200 text-surface-700 rounded-xl transition-colors"
         >
           Cancel
         </button>
@@ -315,10 +328,10 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
           onClick={handleSubmit}
           disabled={isLoading || !hasRequiredFields()}
           className={cn(
-            'flex-1 px-4 py-2 text-sm rounded transition-colors flex items-center justify-center gap-2',
+            'flex-1 px-4 py-3 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2',
             isLoading || !hasRequiredFields()
-              ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-500 text-white'
+              ? 'bg-surface-200 text-surface-400 cursor-not-allowed'
+              : 'bg-primary-600 hover:bg-primary-700 text-white shadow-md hover:shadow-lg'
           )}
         >
           {isLoading ? (
@@ -328,8 +341,8 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
             </>
           ) : (
             <>
-              <CheckCircle2 className="w-4 h-4" />
-              Check Against NG12
+              Check Criteria
+              <ChevronRight className="w-4 h-4" />
             </>
           )}
         </button>
