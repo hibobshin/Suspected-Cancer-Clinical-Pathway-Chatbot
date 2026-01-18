@@ -20,8 +20,9 @@ import {
 } from 'lucide-react';
 import { useChatStore, selectActiveConversation, type SolutionMode } from '@/stores/chatStore';
 import { cn, parseCitations } from '@/lib/utils';
-import type { Artifact, ChatMessage, ResponseType } from '@/types';
+import type { Artifact, ChatMessage, ResponseType, CompileResponse } from '@/types';
 import { DocumentViewer } from './DocumentViewer';
+import { PathwayTool } from './PathwayTool';
 
 const EXAMPLE_PROMPTS = {
   graphrag: [
@@ -103,16 +104,13 @@ export function ChatWindow() {
     }
   }, [messages, solutionMode]);
   
+  // Track scroll request with a counter to force re-triggers
+  const [scrollRequest, setScrollRequest] = useState<{ target: string; id: number } | null>(null);
+  
   const handleArtifactClick = (artifact: Artifact) => {
     // Only open document viewer in custom mode
     if (solutionMode === 'custom') {
-      // Set the section to highlight
       const sectionIdentifier = artifact.rule_id || artifact.section;
-      if (sectionIdentifier) {
-        setHoveredSection(sectionIdentifier);
-        // Clear highlight after 4 seconds
-        setTimeout(() => setHoveredSection(null), 4000);
-      }
       
       // Set URL parameters for scrolling
       if (artifact.rule_id) {
@@ -125,6 +123,29 @@ export function ChatWindow() {
       
       // Open document viewer
       setDocumentViewerOpen(true);
+      
+      // Set scroll request with unique ID to force re-trigger even for same section
+      if (sectionIdentifier) {
+        setScrollRequest({ target: sectionIdentifier, id: Date.now() });
+      }
+    }
+  };
+  
+  // Handle pathway compilation result
+  const handlePathwaySubmit = (response: CompileResponse) => {
+    // Add the compiled recommendation as a new assistant message
+    if (activeConversation) {
+      const newMessage: ChatMessage = {
+        id: `pathway-${Date.now()}`,
+        role: 'assistant',
+        content: response.response,
+        timestamp: new Date(),
+        response_type: response.meets_criteria ? 'answer' : 'clarification',
+        artifacts: response.artifacts,
+      };
+      
+      // Use the store's addMessage if available, or just update locally
+      useChatStore.getState().addPathwayResponse(newMessage);
     }
   };
   
@@ -188,6 +209,7 @@ export function ChatWindow() {
                   onArtifactClick={handleArtifactClick}
                   onArtifactHover={setHoveredSection}
                   solutionMode={solutionMode}
+                  onPathwaySubmit={handlePathwaySubmit}
                 />
               ))}
             </AnimatePresence>
@@ -295,8 +317,7 @@ export function ChatWindow() {
           ruleId={selectedRuleId}
           sectionPath={selectedSectionPath}
           solutionMode={solutionMode}
-          highlightedSection={hoveredSection}
-          onSectionHover={setHoveredSection}
+          scrollRequest={scrollRequest}
         />
       )}
     </main>
@@ -388,13 +409,17 @@ function MessageBubble({
   onArtifactClick,
   onArtifactHover,
   solutionMode,
+  onPathwaySubmit,
 }: { 
   message: ChatMessage; 
   showArtifacts: boolean;
   onArtifactClick?: (artifact: Artifact) => void;
   onArtifactHover?: (section: string | null) => void;
   solutionMode?: 'graphrag' | 'rag' | 'custom';
+  onPathwaySubmit?: (response: CompileResponse) => void;
 }) {
+  const [showPathwayTool, setShowPathwayTool] = useState(false);
+  
   const handleCitationClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target.classList.contains('citation-link')) {
@@ -412,6 +437,14 @@ function MessageBubble({
       }
     }
   };
+  
+  const handlePathwaySubmit = (response: CompileResponse) => {
+    setShowPathwayTool(false);
+    if (onPathwaySubmit) {
+      onPathwaySubmit(response);
+    }
+  };
+  
   const isUser = message.role === 'user';
   const isTyping = message.isTyping;
   
@@ -566,6 +599,31 @@ function MessageBubble({
                 </motion.div>
               )}
             </AnimatePresence>
+            
+            {/* Pathway Button - Show when pathway is available */}
+            {!isUser && !isTyping && message.pathway_available && message.pathway_spec && (
+              <motion.div
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-3"
+              >
+                {!showPathwayTool ? (
+                  <button
+                    onClick={() => setShowPathwayTool(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors shadow-sm"
+                  >
+                    <Stethoscope className="w-4 h-4" />
+                    Check a patient against these criteria
+                  </button>
+                ) : (
+                  <PathwayTool
+                    spec={message.pathway_spec}
+                    onSubmit={handlePathwaySubmit}
+                    onCancel={() => setShowPathwayTool(false)}
+                  />
+                )}
+              </motion.div>
+            )}
           </>
         )}
       </div>
@@ -613,94 +671,158 @@ function ResponseTypeIndicator({ type }: { type: ResponseType }) {
 
 /**
  * Format message content with markdown-like styling.
- * Preserves canonical 6-part structure with proper spacing.
+ * Handles HTML tags (<u>), markdown headers (###), and preserves structure.
  */
 function formatMessage(content: string): string {
   let formatted = content;
   
+  // First, unescape any HTML entities (in case content was escaped)
+  formatted = formatted.replace(/&lt;/g, '<');
+  formatted = formatted.replace(/&gt;/g, '>');
+  formatted = formatted.replace(/&amp;/g, '&');
+  
   // Convert citations
   formatted = parseCitations(formatted);
   
-  // Bold section headers (canonical structure)
-  // Match headers on their own lines (case-insensitive), optionally followed by colon
-  const sectionHeaders = [
-    'Outcome',
-    'Why this applies',
-    'Why This Applies',
-    'Evidence',
-    'Evidence & Citation',
-    'What Happens Next',
-    'Next steps',
-    'Next Steps',
-    'Confidence',
-    'Confidence Signal',
-    'Why this cannot be determined',
-    'What is needed',
-    'What is Needed',
-    'Safety Boundary',
-  ];
+  // Handle <u> tags - convert to proper underline spans
+  formatted = formatted.replace(/<u>/gi, '<span class="underline">');
+  formatted = formatted.replace(/<\/u>/gi, '</span>');
   
-  sectionHeaders.forEach(header => {
-    // Escape special regex characters in header
-    const escapedHeader = header.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Match header at start of line, optionally followed by colon, then end of line
-    // Capture: (whitespace)(header)(optional colon)
-    const regex = new RegExp(`^(\\s*)(${escapedHeader})(:?)\\s*$`, 'gmi');
-    formatted = formatted.replace(regex, (_match, whitespace, headerText, colon) => {
-      return `${whitespace}<strong>${headerText}${colon}</strong>`;
+  // Convert horizontal rules FIRST (before headers consume ---)
+  formatted = formatted.replace(/^[-*]{3,}\s*$/gm, '<hr class="my-4 border-surface-300" />');
+  
+  // Handle "For assessment of X" followed by NG12 reference on next line
+  // Combine them into a single styled header
+  formatted = formatted.replace(
+    /^(For (?:assessment of |evaluation of )?[^\n]+)\n(NG12\s+[\d.]+)\s*$/gm,
+    '<div class="flex items-center gap-2 mt-5 mb-3 pb-2 border-b border-surface-200"><h3 class="font-bold text-surface-900 text-base">$1</h3><span class="px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700">$2</span></div>'
+  );
+  
+  // Handle "Summary for X:" as a styled header
+  formatted = formatted.replace(
+    /^(Summary for [^:\n]+):?\s*$/gm,
+    '<div class="font-bold text-surface-900 mt-5 mb-2 pb-1 border-b border-surface-200">$1</div>'
+  );
+  
+  // Convert markdown headers (### Header) to styled headers
+  formatted = formatted.replace(/^###\s+(\d+\.)\s+(.+?)\s+(NG12\s+[\d.]+)?\s*$/gm, 
+    (_match, num, title, ref) => {
+      const refSpan = ref ? `<span class="ml-2 text-xs font-medium text-primary-600 bg-primary-50 px-2 py-0.5 rounded">${ref}</span>` : '';
+      return `<h3 class="font-bold text-surface-900 text-base mt-5 mb-2 pb-1 border-b border-surface-200"><span class="text-primary-600 mr-1">${num}</span>${title}${refSpan}</h3>`;
     });
+  formatted = formatted.replace(/^###\s+(.+)$/gm, 
+    '<h3 class="font-bold text-surface-900 text-base mt-5 mb-2 pb-1 border-b border-surface-200">$1</h3>');
+  formatted = formatted.replace(/^##\s+(.+)$/gm, 
+    '<h2 class="font-bold text-surface-900 mt-5 mb-3 text-lg">$1</h2>');
+  
+  // Convert NG12 references on their own line to inline badges (cleanup orphaned refs)
+  formatted = formatted.replace(/^\s*(NG12\s+[\d.]+)\s*$/gm, 
+    '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700 mb-2">$1</span>');
+  
+  // Handle field labels on their own lines (Recommendation:, Criteria:, Action:)
+  // and convert following indented/short lines as nested bullets
+  formatted = formatted.replace(
+    /^(Recommendation|Criteria|Action):\s*([^\n]*(?:with:|following:)?)\n((?:[^\n*•-][^\n]{0,60}\n?)+)/gm,
+    (_match, label, intro, items) => {
+      // Split items by newline and convert to nested list
+      const itemLines = items.trim().split('\n').filter((line: string) => line.trim());
+      if (itemLines.length > 0 && intro.trim().endsWith(':')) {
+        // These are nested items
+        const nestedItems = itemLines.map((item: string) => 
+          `<li class="ml-6 text-surface-600">${item.trim()}</li>`
+        ).join('');
+        return `<div class="mb-2"><span class="font-semibold text-surface-800">${label}:</span> ${intro}<ul class="list-disc list-outside ml-8 mt-1 space-y-0.5">${nestedItems}</ul></div>`;
+      } else {
+        // Not nested, just format normally
+        return `<div class="mb-2"><span class="font-semibold text-surface-800">${label}:</span> ${intro} ${items.trim().replace(/\n/g, ' ')}</div>`;
+      }
+    }
+  );
+  
+  // Handle standalone field labels (Recommendation:, Criteria:, Action:) 
+  formatted = formatted.replace(
+    /^(Recommendation|Criteria|Action):\s*(.+)$/gm,
+    '<div class="mb-2"><span class="font-semibold text-surface-800">$1:</span> $2</div>'
+  );
+  
+  // Handle inline field labels within bullet points
+  formatted = formatted.replace(
+    /^(\s*)[-•*]\s+(Recommendation|Criteria|Action):\s*(.+)$/gm,
+    '$1<li class="ml-4 text-surface-700"><span class="font-semibold text-surface-800">$2:</span> $3</li>'
+  );
+  
+  // Handle regular bullet points
+  formatted = formatted.replace(/^(\s*)[-•*]\s+(.+)$/gm, '$1<li class="ml-4 text-surface-700">$2</li>');
+  
+  // Wrap consecutive li elements in ul
+  formatted = formatted.replace(/(<li[^>]*>.*?<\/li>\s*)+/gs, (match) => {
+    return `<ul class="list-disc list-outside ml-4 space-y-1.5 my-2">${match}</ul>`;
   });
   
-  // Convert **bold**
-  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Convert **bold** text
+  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-surface-900">$1</strong>');
+  
+  // Convert *italic* (but not **bold**)
+  formatted = formatted.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em class="text-surface-600">$1</em>');
+  
+  // Convert remaining NG12 references inline to styled badges
+  formatted = formatted.replace(/\b(NG12\s+\d+\.\d+(?:\.\d+)?)\b/g, 
+    '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700">$1</span>');
+  
+  // Process paragraphs - split by double newlines
+  const sections = formatted.split(/\n\n+/);
+  const formattedSections = sections.map((section) => {
+    section = section.trim();
+    if (!section) return '';
+    
+    // Skip if already wrapped in a block element
+    if (/^<(h[1-6]|div|hr|ul|ol|li|span)/.test(section)) {
+      return section;
+    }
+    
+    // Convert single newlines to <br/> within sections
+    let sectionContent = section.replace(/\n/g, '<br/>');
+    
+    // Wrap in paragraph
+    return `<p class="mb-3 text-surface-800 leading-relaxed">${sectionContent}</p>`;
+  });
+  
+  formatted = formattedSections.filter(s => s).join('');
+  
+  // Wrap in container
+  formatted = `<div class="prose-sm max-w-none">${formatted}</div>`;
+  
+  return formatted;
+}
+
+/**
+ * Format artifact text to properly render HTML tags like <u>.
+ * Converts raw HTML tags to styled spans.
+ */
+function formatArtifactText(text: string): string {
+  let formatted = text;
+  
+  // Unescape HTML entities first
+  formatted = formatted.replace(/&lt;/g, '<');
+  formatted = formatted.replace(/&gt;/g, '>');
+  formatted = formatted.replace(/&amp;/g, '&');
+  
+  // Convert <u> tags to underline spans
+  formatted = formatted.replace(/<u>/gi, '<span class="underline decoration-primary-500">');
+  formatted = formatted.replace(/<\/u>/gi, '</span>');
+  
+  // Convert **bold** markdown
+  formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
   
   // Convert *italic* (but not **bold**)
   formatted = formatted.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
   
   // Convert bullet points
-  formatted = formatted.replace(/^[-•]\s+(.+)$/gm, '<li>$1</li>');
-  formatted = formatted.replace(/(<li>.*<\/li>\n?)+/g, '<ul class="list-disc list-inside space-y-1 my-2">$&</ul>');
+  formatted = formatted.replace(/^\s*[-•*]\s+(.+)$/gm, '<span class="block ml-3">• $1</span>');
   
-  // Convert numbered lists
-  formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
-  
-  // Preserve structure: Split by double newlines to maintain section separation
-  // Process each section separately to preserve structure
-  const sections = formatted.split(/\n\n+/);
-  const formattedSections = sections.map((section) => {
-    // Trim whitespace
-    section = section.trim();
-    if (!section) return '';
-    
-    // Check if this section starts with a bold header (already processed)
-    const hasHeader = /^<strong>/.test(section) || /^\s*<strong>/.test(section);
-    
-    // Convert single newlines to <br/> within sections
-    let sectionContent = section.replace(/\n/g, '<br/>');
-    
-    // If it's a header section, add extra spacing after it and wrap content
-    if (hasHeader) {
-      // Header with its content - split header from content
-      const headerMatch = sectionContent.match(/^(<strong>.*?<\/strong>)(.*)$/);
-      if (headerMatch) {
-        const [, header, content] = headerMatch;
-        sectionContent = `<div class="mb-3"><div class="font-semibold mb-1">${header}</div>${content ? `<div>${content}</div>` : ''}</div>`;
-      } else {
-        sectionContent = `<div class="mb-3 font-semibold">${sectionContent}</div>`;
-      }
-    } else {
-      // Regular content section
-      sectionContent = `<div class="mb-2">${sectionContent}</div>`;
-    }
-    
-    return sectionContent;
-  });
-  
-  // Join sections with proper spacing
-  formatted = formattedSections.filter(s => s).join('');
-  
-  // Wrap in container div
-  formatted = `<div class="space-y-1">${formatted}</div>`;
+  // Convert NG12 references to badges
+  formatted = formatted.replace(/\b(NG12\s+\d+\.\d+(?:\.\d+)?)\b/g, 
+    '<span class="inline-flex px-1 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700">$1</span>');
   
   return formatted;
 }
@@ -819,8 +941,8 @@ function ArtifactsDisplay({
                 )}
               </div>
               
-              <AnimatePresence mode="wait">
-                <motion.p
+                <AnimatePresence mode="wait">
+                <motion.div
                   key={isExpanded ? 'expanded' : 'collapsed'}
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -830,9 +952,8 @@ function ArtifactsDisplay({
                     ease: 'easeInOut',
                   }}
                   className="text-sm text-surface-700 whitespace-pre-wrap leading-relaxed"
-                >
-                  {displayText}
-                </motion.p>
+                  dangerouslySetInnerHTML={{ __html: formatArtifactText(displayText) }}
+                />
               </AnimatePresence>
             </div>
           </motion.div>

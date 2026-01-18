@@ -145,6 +145,8 @@ class Artifact(BaseModel):
         chunk_id: Optional chunk identifier for tracking.
         char_count: Character count of the chunk text.
         rule_id: Optional rule ID (e.g., "1.3.1") for section highlighting.
+        start_line: Start line number in the source document.
+        end_line: End line number in the source document.
     """
     section: str = Field(..., description="Section name")
     text: str = Field(..., description="Guideline text chunk used")
@@ -157,6 +159,44 @@ class Artifact(BaseModel):
     chunk_id: str | None = Field(default=None, description="Chunk identifier")
     char_count: int | None = Field(default=None, description="Character count of chunk")
     rule_id: str | None = Field(default=None, description="Rule ID (e.g., '1.3.1') for section highlighting")
+    start_line: int | None = Field(default=None, description="Start line number in source document")
+    end_line: int | None = Field(default=None, description="End line number in source document")
+
+
+class PathwaySpec(BaseModel):
+    """
+    Pre-built criteria specification for pathway UI.
+    
+    Sent to frontend when a retrieved section has criteria that can be
+    checked against a patient case.
+    """
+    recommendation_id: str = Field(..., description="Recommendation ID (e.g., '1.1.2')")
+    title: str = Field(..., description="Display title for the pathway")
+    verbatim_text: str = Field(..., description="Full NG12 recommendation text")
+    criteria_groups: list[dict] = Field(default_factory=list, description="Structured criteria groups")
+    action_if_met: str = Field(default="", description="Recommended action if criteria are met")
+
+
+class CompileRequest(BaseModel):
+    """
+    Request to compile a recommendation based on patient criteria.
+    
+    Sent from the pathway UI after the user fills in patient criteria.
+    """
+    recommendation_id: str = Field(..., description="Recommendation ID to check against")
+    patient_criteria: dict = Field(..., description="Patient criteria filled in by clinician")
+
+
+class CompileResponse(BaseModel):
+    """
+    Response from compiling a recommendation with patient criteria.
+    
+    Contains the formatted recommendation with bold labels for scannability.
+    """
+    response: str = Field(..., description="Bold-formatted recommendation text")
+    meets_criteria: bool = Field(..., description="Whether patient meets the criteria")
+    matched_recommendation: str = Field(..., description="The recommendation ID that was matched")
+    artifacts: list[Artifact] = Field(default_factory=list, description="Source artifacts")
 
 
 class ChatResponse(BaseModel):
@@ -171,6 +211,8 @@ class ChatResponse(BaseModel):
         artifacts: Source artifacts showing guideline text used (for traceability).
         follow_up_questions: Suggested follow-up questions.
         processing_time_ms: Time taken to generate the response.
+        pathway_available: Whether a pathway check is available for this response.
+        pathway_spec: Pre-built criteria spec for pathway UI (if available).
     """
     conversation_id: UUID = Field(..., description="Conversation ID")
     message: str = Field(..., description="Assistant response")
@@ -188,6 +230,8 @@ class ChatResponse(BaseModel):
     processing_time_ms: int = Field(..., ge=0, description="Processing time in milliseconds")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
     query_type: str | None = Field(default=None, description="Query classification: 'general' or 'clinical'")
+    pathway_available: bool = Field(default=False, description="Whether pathway check is available")
+    pathway_spec: PathwaySpec | None = Field(default=None, description="Pre-built criteria for pathway UI")
 
 
 class HealthStatus(str, Enum):

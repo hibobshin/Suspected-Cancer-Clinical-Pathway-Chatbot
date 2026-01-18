@@ -36,6 +36,47 @@ export interface Artifact {
   relevance_score: number;
   chunk_id?: string;
   rule_id?: string;
+  start_line?: number;
+  end_line?: number;
+}
+
+export interface Criterion {
+  field: string;
+  operator: string;
+  value: unknown;
+  label: string;
+}
+
+export interface CriteriaGroup {
+  operator: 'AND' | 'OR';
+  criteria: Criterion[];
+}
+
+export interface PathwaySpec {
+  recommendation_id: string;
+  title: string;
+  verbatim_text: string;
+  criteria_groups: CriteriaGroup[];
+  action_if_met: string;
+}
+
+export interface PatientCriteria {
+  age?: number;
+  smoking?: boolean;
+  symptoms?: string[];
+  [key: string]: unknown;
+}
+
+export interface CompileRequest {
+  recommendation_id: string;
+  patient_criteria: PatientCriteria;
+}
+
+export interface CompileResponse {
+  response: string;
+  meets_criteria: boolean;
+  matched_recommendation: string;
+  artifacts: Artifact[];
 }
 
 export interface ChatMessage {
@@ -47,6 +88,8 @@ export interface ChatMessage {
   citations?: Citation[];
   artifacts?: Artifact[];
   isTyping?: boolean;
+  pathway_available?: boolean;
+  pathway_spec?: PathwaySpec;
 }
 
 export interface Conversation {
@@ -80,6 +123,8 @@ export interface ChatResponse {
   follow_up_questions: string[];
   processing_time_ms: number;
   timestamp: string;
+  pathway_available?: boolean;
+  pathway_spec?: PathwaySpec;
 }
 
 export interface HealthStatus {

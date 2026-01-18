@@ -1,20 +1,21 @@
 """
 Custom chat service for the NG12 Assistant Pipeline.
 
-This service now uses the Document-Native Rule Engine:
-1. Safety Gate (deterministic)
-2. Fact Extraction (LLM)
-3. Rule Matching (deterministic)
-4. Response Generation (LLM)
+This service uses document-centric section retrieval:
+1. Safety Gate (deterministic keyword matching)
+2. Section Retrieval (hybrid BM25 + semantic search)
+3. Response Formatting (LLM with verbatim citations)
+4. Deterministic pathway button logic (based on has_criteria)
 
-The old LangGraph pipeline is deprecated but kept for fallback.
+The LLM's only role is formatting responses - all retrieval and
+pathway decisions are deterministic.
 """
 
 import json
 import re
 import time
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from openai import AsyncOpenAI
@@ -24,7 +25,7 @@ from config.custom_config import CustomPipelineSettings, get_custom_settings
 from config.logging_config import get_logger
 from models.custom_models import (
     CaseFields,
-    Citation,
+    Citation as CustomCitation,
     ConfidenceFactors,
     ConfidenceScore,
     IntentClassification,
@@ -33,16 +34,13 @@ from models.custom_models import (
     IntakeQuestion,
     IntakeResult,
     MetadataQuality,
-    RetrievalResult,
+    RetrievalResult as CustomRetrievalResult,
     SafetyGateResult,
     SafetyCheck,
     StructuredResponse,
     VerbatimEvidence,
 )
-from services.langgraph_pipeline import LangGraphPipeline
-from services.document_preprocessor import get_document_preprocessor
-from services.rule_engine import get_rule_engine, RuleEngine
-from models.rule_models import IntakeRequest as RuleIntakeRequest
+from services.section_retriever import get_section_retriever, SectionRetriever, RetrievalResult
 from models.models import (
     ChatMessage,
     ChatRequest,
@@ -53,6 +51,7 @@ from models.models import (
     ResponseType,
     Citation,
     Artifact,
+    PathwaySpec,
 )
 
 logger = get_logger(__name__)
@@ -60,14 +59,54 @@ logger = get_logger(__name__)
 
 class CustomChatService:
     """
-    Service for processing chat messages with the NG12 Document-Native Rule Engine.
+    Service for processing chat messages with document-centric section retrieval.
     
-    Uses deterministic rule matching with LLM only for fact extraction and response formatting.
-    The old LangGraph pipeline is deprecated but kept for fallback.
+    Uses hybrid BM25 + semantic search to find relevant NG12 sections,
+    then LLM for response formatting with verbatim citations.
+    Pathway button is deterministically shown when sections have criteria.
     """
     
-    # Set to True to use the new Rule Engine, False to use legacy LangGraph
-    USE_RULE_ENGINE = True
+    # System prompt for LLM response formatting
+    SYSTEM_PROMPT = """You are NG12, the NICE guideline for suspected cancer recognition and referral.
+
+YOUR ROLE:
+- Provide authoritative, direct guidance based ONLY on the provided context
+- Your audience is healthcare professionals who need quick, accurate answers
+
+MANDATORY RESPONSE STRUCTURE:
+1. Opening: Start with "NG12 recommends the following for [symptom/topic]:"
+
+2. FOR EACH NUMBERED RECOMMENDATION (X.X.X) IN THE CONTEXT:
+   You MUST create a separate section for EVERY recommendation. Use this format:
+   
+   For assessment of [cancer type]
+   NG12 X.X.X
+   
+   * Criteria: [age and symptom requirements]
+   * Action: [what to do]
+
+3. Summary: List all applicable pathways
+
+ABSOLUTE REQUIREMENT - MULTIPLE RECOMMENDATIONS:
+Count the numbered recommendations in the context (format X.X.X like 1.1.3, 1.5.12).
+You MUST have exactly that many sections in your response. If context has 2 recommendations, output 2 sections.
+DO NOT skip any recommendation - this is critical for patient safety.
+
+INTERPRETING "ANY OF THE FOLLOWING":
+When a recommendation says "with ANY of the following" followed by a list, EACH item is INDEPENDENTLY SUFFICIENT.
+Thrombocytosis ALONE (with age requirement) meets criteria - no additional symptoms needed.
+
+NEVER:
+- Skip any numbered recommendation from the context
+- Say "not a standalone symptom" for items in "any of" lists
+- Open with "NG12 does not provide..." when guidance exists
+
+FOOTER: *Source: NICE NG12. Clinical decisions remain with the treating clinician.*
+
+CONTEXT:
+{context}
+
+USER QUERY: {query}"""
     
     def __init__(
         self,
@@ -83,44 +122,49 @@ class CustomChatService:
         """
         self.settings = settings or get_settings()
         self.custom_settings = custom_settings or get_custom_settings()
-        self._pipeline: LangGraphPipeline | None = None
-        self._rule_engine: RuleEngine | None = None
+        self._retriever: SectionRetriever | None = None
+        self._openai_client: AsyncOpenAI | None = None
         
         logger.info(
-            "CustomChatService initialized",
+            "CustomChatService initialized with section retrieval",
             config_version=self.custom_settings.config_version,
-            use_rule_engine=self.USE_RULE_ENGINE,
         )
     
     @property
-    def pipeline(self) -> LangGraphPipeline:
-        """Get or create the LangGraph pipeline (deprecated)."""
-        if self._pipeline is None:
-            self._pipeline = LangGraphPipeline(
-                settings=self.settings,
-                custom_settings=self.custom_settings,
-            )
-        return self._pipeline
+    def retriever(self) -> SectionRetriever:
+        """Get or create the section retriever."""
+        if self._retriever is None:
+            self._retriever = get_section_retriever()
+        return self._retriever
     
     @property
-    def rule_engine(self) -> RuleEngine:
-        """Get or create the Rule Engine."""
-        if self._rule_engine is None:
-            self._rule_engine = get_rule_engine()
-        return self._rule_engine
+    def openai_client(self) -> AsyncOpenAI:
+        """Get or create the OpenAI client."""
+        if self._openai_client is None:
+            self._openai_client = AsyncOpenAI(
+                api_key=self.settings.openai_api_key,
+                # Uses OpenAI's default base URL
+            )
+        return self._openai_client
     
     async def process_message(
         self,
         request: ChatRequest,
     ) -> ChatResponse:
         """
-        Process a chat message through the Rule Engine.
+        Process a chat message through document-centric section retrieval.
+        
+        Flow:
+        1. Safety gate (deterministic keyword matching)
+        2. Section retrieval (hybrid BM25 + semantic search)
+        3. LLM response formatting (with verbatim citations)
+        4. Deterministic pathway button (if sections have criteria)
         
         Args:
             request: Chat request with message and context.
             
         Returns:
-            ChatResponse with the assistant's response.
+            ChatResponse with the assistant's response and pathway info.
         """
         start_time = time.perf_counter()
         conversation_id = request.conversation_id or uuid4()
@@ -129,23 +173,17 @@ class CustomChatService:
             "Processing custom chat message",
             conversation_id=str(conversation_id),
             message_length=len(request.message),
-            route_type=request.route_type.value if request.route_type else None,
-            use_rule_engine=self.USE_RULE_ENGINE,
         )
         
         try:
-            # Input validation
             query = request.message.strip()
+            
+            # Input validation
             if not query or len(query) < self.custom_settings.min_query_length:
                 processing_time = int((time.perf_counter() - start_time) * 1000)
-                logger.error(
-                    "Input validation failed",
-                    query_length=len(query),
-                    min_length=self.custom_settings.min_query_length,
-                )
                 return ChatResponse(
                     conversation_id=conversation_id,
-                    message=f"Query must be at least {self.custom_settings.min_query_length} characters long. Please provide a more detailed query.",
+                    message=f"Query must be at least {self.custom_settings.min_query_length} characters long.",
                     response_type=ResponseType.CLARIFICATION,
                     citations=[],
                     artifacts=[],
@@ -153,11 +191,70 @@ class CustomChatService:
                     processing_time_ms=processing_time,
                 )
             
-            # Use Rule Engine or fallback to legacy pipeline
-            if self.USE_RULE_ENGINE:
-                return await self._process_with_rule_engine(query, conversation_id, start_time)
-            else:
-                return await self._process_with_legacy_pipeline(query, conversation_id, start_time)
+            # 1. Safety gate (deterministic)
+            safety_result = self._check_safety_gate(query)
+            if not safety_result["passed"]:
+                processing_time = int((time.perf_counter() - start_time) * 1000)
+                return ChatResponse(
+                    conversation_id=conversation_id,
+                    message=safety_result["message"],
+                    response_type=ResponseType.REFUSAL,
+                    citations=[],
+                    artifacts=[],
+                    follow_up_questions=[],
+                    processing_time_ms=processing_time,
+                )
+            
+            # 2. Section retrieval - use top_k=8 to capture multiple relevant pathways
+            # (e.g., thrombocytosis can trigger both lung cancer and endometrial cancer pathways)
+            sections = self.retriever.search(query, top_k=8)
+            
+            if not sections:
+                processing_time = int((time.perf_counter() - start_time) * 1000)
+                return ChatResponse(
+                    conversation_id=conversation_id,
+                    message="NG12 does not appear to contain information specifically addressing your query. Please try rephrasing or ask about a different topic.",
+                    response_type=ResponseType.CLARIFICATION,
+                    citations=[],
+                    artifacts=[],
+                    follow_up_questions=[],
+                    processing_time_ms=processing_time,
+                )
+            
+            # 3. LLM response formatting
+            response_text = await self._format_response(query, sections)
+            
+            # 4. Build artifacts from sections
+            artifacts = self._build_artifacts(sections)
+            
+            # 5. Build citations from sections
+            citations = self._build_citations(sections)
+            
+            # 6. Deterministic pathway logic - pass query to match symptoms
+            pathway_available, pathway_spec = self._build_pathway_spec(sections, query)
+            
+            processing_time = int((time.perf_counter() - start_time) * 1000)
+            
+            logger.info(
+                "Section retrieval processed message",
+                conversation_id=str(conversation_id),
+                sections_found=len(sections),
+                artifacts_count=len(artifacts),
+                pathway_available=pathway_available,
+                processing_time_ms=processing_time,
+            )
+            
+            return ChatResponse(
+                conversation_id=conversation_id,
+                message=response_text,
+                response_type=ResponseType.ANSWER,
+                citations=citations,
+                artifacts=artifacts,
+                follow_up_questions=[],
+                processing_time_ms=processing_time,
+                pathway_available=pathway_available,
+                pathway_spec=pathway_spec,
+            )
             
         except Exception as e:
             logger.exception("Unexpected error in custom chat", error=str(e), conversation_id=str(conversation_id))
@@ -172,16 +269,613 @@ class CustomChatService:
                 processing_time_ms=processing_time,
             )
     
-    async def _process_with_rule_engine(
+    def _check_safety_gate(self, query: str) -> dict:
+        """
+        Deterministic safety gate using keyword matching.
+        
+        Args:
+            query: The user query to check.
+            
+        Returns:
+            Dict with 'passed' bool and 'message' if blocked.
+        """
+        query_lower = query.lower()
+        
+        # Check for emergency keywords
+        emergency_keywords = self.custom_settings.emergency_keywords
+        for keyword in emergency_keywords:
+            if keyword.lower() in query_lower:
+                return {
+                    "passed": False,
+                    "message": (
+                        "I cannot provide emergency medical advice. "
+                        "If this is a medical emergency, please call emergency services immediately."
+                    )
+                }
+        
+        # Check for diagnostic requests
+        diagnostic_patterns = [
+            "diagnose me",
+            "what is wrong with me",
+            "what disease do i have",
+            "what condition do i have",
+            "tell me what i have",
+        ]
+        for pattern in diagnostic_patterns:
+            if pattern in query_lower:
+                return {
+                    "passed": False,
+                    "message": (
+                        "I cannot provide diagnoses. NG12 provides guidance on recognising symptoms "
+                        "that may warrant investigation or referral, but diagnosis requires clinical assessment. "
+                        "Please consult a healthcare professional."
+                    )
+                }
+        
+        # Check for treatment/prescription requests
+        treatment_patterns = [
+            "prescribe",
+            "what medication should",
+            "what treatment should",
+            "how to treat",
+            "what drug",
+        ]
+        for pattern in treatment_patterns:
+            if pattern in query_lower:
+                return {
+                    "passed": False,
+                    "message": (
+                        "I cannot recommend treatments or medications. "
+                        "NG12 focuses on cancer recognition and referral pathways, not treatment. "
+                        "Treatment decisions should be made by your healthcare team."
+                    )
+                }
+        
+        return {"passed": True, "message": None}
+    
+    async def _format_response(self, query: str, sections: list[RetrievalResult]) -> str:
+        """
+        Format a response using LLM with retrieved sections as context.
+        
+        Args:
+            query: The user query.
+            sections: Retrieved sections to use as context.
+            
+        Returns:
+            Formatted response string with citations.
+        """
+        # Build context from sections - prioritize numbered recommendations
+        # First, add numbered recommendations (X.X.X format) as they're most actionable
+        numbered_sections = []
+        other_sections = []
+        
+        for section in sections:
+            section_ref = section.section_id
+            if section.section_id[0].isdigit():
+                # This is a numbered recommendation - prioritize it
+                section_ref = f"NG12 {section.section_id}"
+                numbered_sections.append(f"### {section_ref}: {section.header}\n{section.content}")
+            else:
+                # Other context (definitions, tables, etc.)
+                other_sections.append(f"### {section_ref}: {section.header}\n{section.content[:300]}")
+        
+        # Build context with numbered recommendations first, prominently marked
+        context_parts = []
+        if numbered_sections:
+            context_parts.append("=== NUMBERED RECOMMENDATIONS (YOU MUST ADDRESS EACH ONE) ===")
+            context_parts.extend(numbered_sections)
+            context_parts.append(f"=== END OF {len(numbered_sections)} NUMBERED RECOMMENDATIONS ===")
+        
+        if other_sections:
+            context_parts.append("\n=== SUPPORTING CONTEXT ===")
+            context_parts.extend(other_sections[:3])  # Limit supporting context
+        
+        context = "\n\n".join(context_parts)
+        
+        # Build prompt
+        prompt = self.SYSTEM_PROMPT.format(context=context, query=query)
+        
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.settings.llm_model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": query}
+                ],
+                temperature=0.3,  # Lower temperature for factual responses
+                max_tokens=1000,
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"LLM response formatting failed: {e}")
+            # Fallback: return verbatim section content
+            fallback_parts = []
+            for section in sections[:2]:  # Top 2 sections
+                if section.section_id[0].isdigit():
+                    fallback_parts.append(f"**NG12 {section.section_id}:** {section.content}")
+                else:
+                    fallback_parts.append(f"**{section.header}:** {section.content}")
+            
+            return "\n\n".join(fallback_parts) + "\n\n*Source: NICE NG12. Clinical decisions remain with the treating clinician.*"
+    
+    def _build_artifacts(self, sections: list[RetrievalResult]) -> list[Artifact]:
+        """
+        Build artifact list from retrieved sections.
+        
+        Args:
+            sections: Retrieved sections.
+            
+        Returns:
+            List of Artifact objects for the response.
+        """
+        artifacts = []
+        for section in sections:
+            artifact = Artifact(
+                section=" > ".join(section.header_path) if section.header_path else section.header,
+                text=section.content,
+                source="NICE NG12",
+                source_url="https://www.nice.org.uk/guidance/ng12",
+                relevance_score=section.score,
+                rule_id=section.section_id if section.section_id[0].isdigit() else None,
+                start_line=section.start_line,
+                end_line=section.end_line,
+            )
+            artifacts.append(artifact)
+        return artifacts
+    
+    def _build_citations(self, sections: list[RetrievalResult]) -> list[Citation]:
+        """
+        Build citation list from retrieved sections.
+        
+        Args:
+            sections: Retrieved sections.
+            
+        Returns:
+            List of Citation objects.
+        """
+        citations = []
+        for section in sections:
+            if section.section_id[0].isdigit():  # Only numbered recommendations
+                citation = Citation(
+                    statement_id=section.section_id,
+                    section=" > ".join(section.header_path) if section.header_path else section.header,
+                    text=section.content[:200] if section.content else None,
+                )
+                citations.append(citation)
+        return citations
+    
+    def _build_pathway_spec(self, sections: list[RetrievalResult], query: str = "") -> tuple[bool, Optional[PathwaySpec]]:
+        """
+        Deterministically build pathway spec for sections that match the queried symptom.
+        
+        Only includes sections whose criteria contain symptoms that appear in the query.
+        This ensures only truly relevant recommendations (e.g., those mentioning thrombocytosis)
+        are shown when the user asks about thrombocytosis.
+        
+        Args:
+            sections: Retrieved sections.
+            query: The user's query (used to match symptoms).
+            
+        Returns:
+            Tuple of (pathway_available, pathway_spec).
+        """
+        import re
+        
+        # Extract key symptoms from the query
+        query_lower = query.lower()
+        key_symptoms = ['thrombocytosis', 'haematuria', 'haemoptysis', 'lymphadenopathy', 
+                        'clubbing', 'fatigue', 'weight loss', 'cough', 'hoarseness',
+                        'chest infection', 'vaginal discharge', 'dysphagia', 'jaundice']
+        
+        query_symptoms = set()
+        for symptom in key_symptoms:
+            # Use first 6 chars for matching (handles typos)
+            symptom_root = symptom[:6] if len(symptom) > 6 else symptom
+            if symptom_root.lower() in query_lower:
+                query_symptoms.add(symptom.lower())
+        
+        logger.info(
+            "Building pathway spec",
+            query_symptoms=list(query_symptoms),
+            sections_count=len(sections),
+            sections_with_criteria=[s.section_id for s in sections if s.has_criteria],
+        )
+        
+        # Simple approach: include sections with criteria where the symptom is in the content
+        matching_sections = []
+        for section in sections:
+            if not section.has_criteria or not section.criteria_spec:
+                continue
+            
+            # Check if ANY query symptom appears in the section content
+            content_lower = section.content.lower()
+            has_matching_symptom = False
+            for qs in query_symptoms:
+                if qs in content_lower:
+                    has_matching_symptom = True
+                    logger.info(f"Section {section.section_id} matches symptom '{qs}'")
+                    break
+            
+            if has_matching_symptom:
+                matching_sections.append(section)
+        
+        logger.info(
+            "Matched sections",
+            matched_ids=[s.section_id for s in matching_sections],
+        )
+        
+        # Sort by score and limit to 2 most relevant
+        matching_sections.sort(key=lambda s: s.score, reverse=True)
+        matching_sections = matching_sections[:2]  # Limit to top 2
+        
+        # Note: We no longer add recommendations from symptom tables
+        # since we've already done proper symptom-based filtering above
+        
+        if not matching_sections:
+            return False, None
+        
+        # Aggregate all criteria into a single PathwaySpec
+        if len(matching_sections) == 1:
+            # Single recommendation - simple case
+            section = matching_sections[0]
+            spec = section.criteria_spec
+            pathway_spec = PathwaySpec(
+                recommendation_id=spec.get("recommendation_id", section.section_id),
+                title=f"NG12 {section.section_id} - Check Patient Criteria",
+                verbatim_text=section.content,
+                criteria_groups=spec.get("criteria_groups", []),
+                action_if_met=spec.get("action", ""),
+            )
+        else:
+            # Multiple recommendations - aggregate criteria
+            all_rec_ids = [s.section_id for s in matching_sections]
+            all_criteria_groups = []
+            all_verbatim_parts = []
+            all_actions = []
+            
+            # Collect unique symptoms across all criteria groups
+            all_symptoms = set()
+            has_age = False
+            has_smoking = False
+            
+            for section in matching_sections:
+                spec = section.criteria_spec
+                all_verbatim_parts.append(f"**NG12 {section.section_id}:**\n{section.content}")
+                
+                if spec.get("action"):
+                    all_actions.append(f"NG12 {section.section_id}: {spec['action']}")
+                
+                for group in spec.get("criteria_groups", []):
+                    for criterion in group.get("criteria", []):
+                        field = criterion.get("field")
+                        if field == "age":
+                            has_age = True
+                        elif field == "smoking":
+                            has_smoking = True
+                        elif field == "symptoms":
+                            values = criterion.get("value", [])
+                            if isinstance(values, list):
+                                all_symptoms.update(values)
+                            elif isinstance(values, str):
+                                all_symptoms.add(values)
+            
+            # Build aggregated criteria groups
+            aggregated_criteria = []
+            if has_age:
+                aggregated_criteria.append({
+                    "field": "age",
+                    "operator": ">=",
+                    "value": 40,  # Most common threshold
+                    "label": "Patient age"
+                })
+            if has_smoking:
+                aggregated_criteria.append({
+                    "field": "smoking",
+                    "operator": "==",
+                    "value": True,
+                    "label": "Smoking history"
+                })
+            if all_symptoms:
+                aggregated_criteria.append({
+                    "field": "symptoms",
+                    "operator": "any_of",
+                    "value": sorted(list(all_symptoms)),
+                    "label": "Symptoms present"
+                })
+            
+            if aggregated_criteria:
+                all_criteria_groups.append({
+                    "operator": "AND",
+                    "criteria": aggregated_criteria
+                })
+            
+            pathway_spec = PathwaySpec(
+                recommendation_id=",".join(all_rec_ids),
+                title=f"Check Criteria for {len(matching_sections)} NG12 Recommendations",
+                verbatim_text="\n\n---\n\n".join(all_verbatim_parts),
+                criteria_groups=all_criteria_groups,
+                action_if_met="\n".join(all_actions) if all_actions else "",
+            )
+        
+        logger.info(
+            "Pathway available",
+            recommendation_count=len(matching_sections),
+            rec_ids=[s.section_id for s in matching_sections],
+            criteria_groups=len(pathway_spec.criteria_groups),
+        )
+        return True, pathway_spec
+    
+    async def compile_recommendation(
+        self,
+        recommendation_id: str,
+        patient_criteria: dict,
+    ) -> dict:
+        """
+        Compile recommendation(s) with patient criteria.
+        
+        Supports multiple recommendation IDs (comma-separated) for cases where
+        multiple recommendations apply (e.g., lung cancer AND endometrial cancer).
+        
+        Args:
+            recommendation_id: The NG12 recommendation ID(s) (e.g., "1.1.3" or "1.1.3,1.5.12")
+            patient_criteria: Dict of patient criteria from the pathway UI
+            
+        Returns:
+            Dict with response, meets_criteria, and artifacts.
+        """
+        # Handle multiple recommendation IDs
+        rec_ids = [r.strip() for r in recommendation_id.split(",")]
+        
+        if len(rec_ids) == 1:
+            # Single recommendation - original behavior
+            return await self._compile_single_recommendation(rec_ids[0], patient_criteria)
+        
+        # Multiple recommendations - check each and aggregate results
+        all_responses = []
+        all_artifacts = []
+        any_meets = False
+        all_matched = []
+        
+        for rec_id in rec_ids:
+            result = await self._compile_single_recommendation(rec_id, patient_criteria)
+            all_responses.append(result["response"])
+            all_artifacts.extend(result.get("artifacts", []))
+            if result["meets_criteria"]:
+                any_meets = True
+            all_matched.append(result["matched_recommendation"])
+        
+        # Combine responses with clear separation
+        combined_response = "\n\n---\n\n".join(all_responses)
+        combined_response += "\n\n---\n*Source: NICE NG12. Clinical decisions remain with the treating clinician.*"
+        
+        return {
+            "response": combined_response,
+            "meets_criteria": any_meets,
+            "matched_recommendation": ", ".join(all_matched),
+            "artifacts": all_artifacts,
+        }
+    
+    async def _compile_single_recommendation(
+        self,
+        recommendation_id: str,
+        patient_criteria: dict,
+    ) -> dict:
+        """
+        Compile a single recommendation with patient criteria.
+        
+        Args:
+            recommendation_id: The NG12 recommendation ID (e.g., "1.1.2")
+            patient_criteria: Dict of patient criteria from the pathway UI
+            
+        Returns:
+            Dict with response, meets_criteria, and artifacts.
+        """
+        # Look up the section
+        section = self.retriever.get_by_id(recommendation_id)
+        
+        if not section:
+            return {
+                "response": f"Recommendation {recommendation_id} not found in NG12.",
+                "meets_criteria": False,
+                "matched_recommendation": recommendation_id,
+                "artifacts": [],
+            }
+        
+        # Check if patient meets criteria
+        meets_criteria = self._evaluate_criteria(section.criteria_spec, patient_criteria)
+        
+        # Format the compiled recommendation
+        response = self._format_compiled_recommendation(
+            section=section,
+            patient_criteria=patient_criteria,
+            meets_criteria=meets_criteria,
+        )
+        
+        # Build artifact
+        artifact = Artifact(
+            section=" > ".join(section.header_path) if section.header_path else section.header,
+            text=section.content,
+            source="NICE NG12",
+            source_url="https://www.nice.org.uk/guidance/ng12",
+            relevance_score=1.0,
+            rule_id=section.section_id,
+            start_line=section.start_line,
+            end_line=section.end_line,
+        )
+        
+        return {
+            "response": response,
+            "meets_criteria": meets_criteria,
+            "matched_recommendation": recommendation_id,
+            "artifacts": [artifact],
+        }
+    
+    def _evaluate_criteria(self, criteria_spec: Optional[dict], patient_criteria: dict) -> bool:
+        """
+        Evaluate if patient criteria meet the recommendation criteria.
+        
+        Note: The NG12 recommendations often have complex OR conditions like:
+        "2+ symptoms OR (ever smoked AND 1+ symptom)"
+        
+        The parser simplifies these, so we use pragmatic evaluation:
+        - If patient has age + smoking + any symptom from list = meets criteria
+        - If patient has age + 2+ symptoms from list = meets criteria
+        
+        Args:
+            criteria_spec: The pre-parsed criteria from the section.
+            patient_criteria: The patient data from the pathway UI.
+            
+        Returns:
+            True if criteria are met, False otherwise.
+        """
+        if not criteria_spec or not criteria_spec.get("criteria_groups"):
+            return True  # No criteria means it applies
+        
+        for group in criteria_spec.get("criteria_groups", []):
+            criteria_list = group.get("criteria", [])
+            
+            # Extract values
+            age_criterion = None
+            smoking_criterion = None
+            symptom_criterion = None
+            
+            for criterion in criteria_list:
+                if criterion.get("field") == "age":
+                    age_criterion = criterion
+                elif criterion.get("field") == "smoking":
+                    smoking_criterion = criterion
+                elif criterion.get("field") == "symptoms":
+                    symptom_criterion = criterion
+            
+            # Get patient data
+            patient_age = patient_criteria.get("age")
+            patient_smoking = patient_criteria.get("smoking", False)
+            patient_symptoms = patient_criteria.get("symptoms", [])
+            if isinstance(patient_symptoms, str):
+                patient_symptoms = [patient_symptoms]
+            
+            # Check age requirement
+            age_met = True
+            if age_criterion:
+                age_threshold = age_criterion.get("value", 0)
+                age_met = patient_age is not None and patient_age >= age_threshold
+            
+            if not age_met:
+                continue  # Age not met, try next group
+            
+            # Check symptom requirements
+            if symptom_criterion:
+                expected_symptoms = symptom_criterion.get("value", [])
+                operator = symptom_criterion.get("operator", "has_any")
+                
+                # Count matching symptoms
+                matching_symptoms = [s for s in patient_symptoms if s.lower() in [e.lower() for e in expected_symptoms]]
+                
+                # Pragmatic logic based on NG12 patterns:
+                # If ever smoked, only need 1 symptom
+                # If not smoked, need 2+ symptoms
+                if patient_smoking:
+                    if len(matching_symptoms) >= 1:
+                        return True
+                else:
+                    # Check operator for threshold
+                    if "2_or_more" in operator:
+                        if len(matching_symptoms) >= 2:
+                            return True
+                    elif len(matching_symptoms) >= 1:
+                        return True
+            else:
+                # No symptom criteria, age alone sufficient
+                return True
+        
+        return False
+    
+    def _format_compiled_recommendation(
+        self,
+        section: RetrievalResult,
+        patient_criteria: dict,
+        meets_criteria: bool,
+    ) -> str:
+        """
+        Format the compiled recommendation with bold labels.
+        
+        Args:
+            section: The matched section.
+            patient_criteria: The patient criteria.
+            meets_criteria: Whether criteria are met.
+            
+        Returns:
+            Formatted markdown string with bold labels.
+        """
+        # Format patient criteria as readable string
+        criteria_parts = []
+        if patient_criteria.get("age"):
+            criteria_parts.append(f"Age {patient_criteria['age']}")
+        if patient_criteria.get("smoking"):
+            criteria_parts.append("ever smoked")
+        if patient_criteria.get("symptoms"):
+            symptoms = patient_criteria["symptoms"]
+            if isinstance(symptoms, list):
+                criteria_parts.append(f"symptoms: {', '.join(symptoms)}")
+            else:
+                criteria_parts.append(f"symptom: {symptoms}")
+        
+        criteria_str = ", ".join(criteria_parts) if criteria_parts else "provided criteria"
+        
+        # Get action from criteria spec or header
+        action = "See recommendation for appropriate action."
+        if section.criteria_spec and section.criteria_spec.get("action"):
+            action = section.criteria_spec["action"]
+        
+        if meets_criteria:
+            response = f"""✅ **NG12 Recommendation**
+
+**Based on:** {criteria_str}
+
+**Action:** {action}
+
+**Rationale:** Patient meets the criteria specified in NG12 {section.section_id}.
+
+**Source:** NG12 {section.section_id} (Lines {section.start_line}-{section.end_line})
+
+---
+*Source: NICE NG12. Clinical decisions remain with the treating clinician.*"""
+        else:
+            response = f"""⚠️ **NG12 Criteria Not Met**
+
+**Based on:** {criteria_str}
+
+**Assessment:** The provided patient criteria do not fully meet the threshold for NG12 {section.section_id}.
+
+**Recommendation:** Review the full criteria in NG12 {section.section_id} and consider whether additional patient information may be relevant.
+
+**Source:** NG12 {section.section_id} (Lines {section.start_line}-{section.end_line})
+
+---
+*Source: NICE NG12. Clinical decisions remain with the treating clinician.*"""
+        
+        return response
+    
+    # ============================================================
+    # LEGACY METHODS BELOW (kept for compatibility)
+    # ============================================================
+    
+    async def _process_with_rule_engine_legacy(
         self,
         query: str,
         conversation_id: UUID,
         start_time: float,
     ) -> ChatResponse:
-        """Process query using the new Rule Engine."""
+        """Process query using the old Rule Engine (DEPRECATED)."""
         
-        # Run Rule Engine
-        result = await self.rule_engine.process(query, str(conversation_id))
+        # This method is kept for reference but no longer used
+        from services.rule_engine import get_rule_engine
+        from models.rule_models import IntakeRequest as RuleIntakeRequest
+        
+        rule_engine = get_rule_engine()
+        result = await rule_engine.process(query, str(conversation_id))
         
         processing_time = int((time.perf_counter() - start_time) * 1000)
         
@@ -432,7 +1126,7 @@ class CustomChatService:
         request: ChatRequest,
     ) -> AsyncGenerator[str, None]:
         """
-        Process a chat message and stream the response.
+        Process a chat message and stream the response using section retrieval.
         
         Args:
             request: Chat request with message and context.
@@ -446,97 +1140,72 @@ class CustomChatService:
             "Processing custom chat message stream",
             conversation_id=str(conversation_id),
             message_length=len(request.message),
-            use_rule_engine=self.USE_RULE_ENGINE,
         )
         
         try:
-            import json
+            import json as json_module
             
             # Send start event
-            yield f"data: {json.dumps({'type': 'start', 'conversation_id': str(conversation_id)})}\n\n"
+            yield f"data: {json_module.dumps({'type': 'start', 'conversation_id': str(conversation_id)})}\n\n"
             
-            if self.USE_RULE_ENGINE:
-                # Use Rule Engine
-                result = await self.rule_engine.process(request.message, str(conversation_id))
-                
-                # Extract response text
-                if isinstance(result.response, RuleIntakeRequest):
-                    response_text = result.response.partial_assessment or result.response.reason
-                    if result.response.fields:
-                        response_text += "\n\n**Please provide:**\n"
-                        for field in result.response.fields:
-                            response_text += f"- {field.label}: {field.context}\n"
-                else:
-                    response_text = result.response
-                
-                # Stream response in chunks
-                chunk_size = 50
-                for i in range(0, len(response_text), chunk_size):
-                    chunk = response_text[i:i + chunk_size]
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-                
-                # Build artifacts
-                artifacts = [
-                    Artifact(
-                        section=a.section,
-                        text=a.text,
-                        source="NICE NG12",
-                        source_url="https://www.nice.org.uk/guidance/ng12",
-                        relevance_score=a.relevance_score,
-                        chunk_id=a.rule_id,
-                        rule_id=a.rule_id,
-                    )
-                    for a in result.artifacts
-                ]
-                
-                # Send done event
-                response_type_map = {
-                    "answer": "answer",
-                    "clarification": "clarification",
-                    "intake_form": "clarification",
-                    "fail_closed": "clarification",
+            query = request.message.strip()
+            
+            # 1. Safety gate
+            safety_result = self._check_safety_gate(query)
+            if not safety_result["passed"]:
+                yield f"data: {json_module.dumps({'type': 'chunk', 'content': safety_result['message']})}\n\n"
+                yield f"data: {json_module.dumps({'type': 'done', 'response_type': 'refusal', 'citations': [], 'artifacts': []})}\n\n"
+                return
+            
+            # 2. Section retrieval - use top_k=8 to capture multiple relevant pathways
+            sections = self.retriever.search(query, top_k=8)
+            
+            if not sections:
+                no_results_msg = "NG12 does not appear to contain information specifically addressing your query."
+                yield f"data: {json_module.dumps({'type': 'chunk', 'content': no_results_msg})}\n\n"
+                yield f"data: {json_module.dumps({'type': 'done', 'response_type': 'clarification', 'citations': [], 'artifacts': []})}\n\n"
+                return
+            
+            # 3. Format response with LLM (streaming)
+            response_text = await self._format_response(query, sections)
+            
+            # Stream response in chunks
+            chunk_size = 50
+            for i in range(0, len(response_text), chunk_size):
+                chunk = response_text[i:i + chunk_size]
+                yield f"data: {json_module.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+            
+            # 4. Build artifacts from sections
+            artifacts = self._build_artifacts(sections)
+            
+            # 5. Build citations from sections
+            citations = self._build_citations(sections)
+            
+            # 6. Deterministic pathway logic - pass query to match symptoms
+            pathway_available, pathway_spec = self._build_pathway_spec(sections, query)
+            
+            # Send done event
+            done_data = {
+                'type': 'done',
+                'response_type': 'answer',
+                'artifacts': [artifact.model_dump(mode='json') for artifact in artifacts],
+                'citations': [
+                    {
+                        'statement_id': c.statement_id,
+                        'section': c.section,
+                        'text': c.text,
+                    }
+                    for c in citations
+                ],
+                'pathway_available': pathway_available,
+                'pathway_spec': pathway_spec.model_dump(mode='json') if pathway_spec else None,
                 }
-                done_data = {
-                    'type': 'done',
-                    'response_type': response_type_map.get(result.response_type, 'answer'),
-                    'artifacts': [artifact.model_dump(mode='json') for artifact in artifacts],
-                    'citations': [
-                        {
-                            'statement_id': m.rule.rule_id,
-                            'section': m.rule.section_path,
-                            'text': m.rule.verbatim_text[:200],
-                        }
-                        for m in result.matches[:5]
-                    ],
-                }
-                yield f"data: {json.dumps(done_data)}\n\n"
-            else:
-                # Legacy pipeline
-                pipeline_state = await self.pipeline.run(request.message, str(conversation_id))
-                response_text = pipeline_state.get("response", "")
-                
-                # Stream response in chunks
-                chunk_size = 50
-                for i in range(0, len(response_text), chunk_size):
-                    chunk = response_text[i:i + chunk_size]
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-                
-                # Build artifacts from pipeline state
-                artifacts = self._build_artifacts_from_chunks(pipeline_state)
-                
-                # Send done event with artifacts
-                done_data = {
-                    'type': 'done',
-                    'response_type': 'answer',
-                    'artifacts': [artifact.model_dump(mode='json') for artifact in artifacts],
-                    'citations': [],
-                }
-                yield f"data: {json.dumps(done_data)}\n\n"
+            yield f"data: {json_module.dumps(done_data)}\n\n"
             
         except Exception as e:
             logger.exception("Error in custom chat stream", error=str(e))
-            import json
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            import json as json_err
+            yield f"data: {json_err.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     # Old methods kept for compatibility but not used in new pipeline
     # These methods are deprecated - the new LangGraph pipeline handles everything

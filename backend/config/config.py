@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # LLM Provider (DeepSeek)
     deepseek_api_key: str = Field(default="", description="DeepSeek API key")
     deepseek_base_url: str = Field(default="https://api.deepseek.com", description="DeepSeek API base URL")
-    llm_model: str = Field(default="deepseek-chat", description="LLM model to use")
+    llm_model: str = Field(default="gpt-4o-mini", description="LLM model to use")
     llm_max_tokens: int = Field(default=2048, description="Max tokens per response")
     llm_temperature: float = Field(default=1.3, description="Model temperature")
     

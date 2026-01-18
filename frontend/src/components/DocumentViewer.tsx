@@ -12,8 +12,7 @@ interface DocumentViewerProps {
   ruleId?: string;
   sectionPath?: string;
   solutionMode?: 'graphrag' | 'rag' | 'custom';
-  highlightedSection?: string | null;
-  onSectionHover?: (section: string | null) => void;
+  scrollRequest?: { target: string; id: number } | null;
 }
 
 interface SectionMatch {
@@ -37,7 +36,7 @@ export function DocumentViewer({
   ruleId, 
   sectionPath,
   solutionMode = 'custom',
-  highlightedSection,
+  scrollRequest,
 }: DocumentViewerProps) {
   const [documentContent, setDocumentContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -86,22 +85,37 @@ export function DocumentViewer({
     return rules;
   };
 
-  // Handle external highlight requests
+  // Track the last processed scroll request ID
+  const lastScrollIdRef = useRef<number>(0);
+  const pendingScrollRef = useRef<string | null>(null);
+
+  // Handle scroll requests - the id changes even for same target, ensuring re-trigger
   useEffect(() => {
-    if (highlightedSection && sections.length > 0) {
-      scrollToSection(highlightedSection);
-      setActiveSection(null); // Clear any previous active section
-      // Find and set the active section
-      const section = sections.find(s => 
-        s.id === highlightedSection ||
-        s.title.toLowerCase().includes(highlightedSection.toLowerCase()) ||
-        highlightedSection.toLowerCase().includes(s.title.toLowerCase())
-      );
-      if (section) {
-        setActiveSection(section.id);
-      }
+    if (!scrollRequest || scrollRequest.id === lastScrollIdRef.current) {
+      return;
     }
-  }, [highlightedSection, sections]);
+    
+    lastScrollIdRef.current = scrollRequest.id;
+    const target = scrollRequest.target;
+    
+    if (sections.length > 0) {
+      // Document loaded, scroll immediately
+      scrollToSection(target);
+    } else {
+      // Document not loaded yet, queue the scroll
+      pendingScrollRef.current = target;
+    }
+  }, [scrollRequest, sections.length]);
+
+  // Handle pending scroll after sections load
+  useEffect(() => {
+    if (sections.length > 0 && pendingScrollRef.current) {
+      const target = pendingScrollRef.current;
+      pendingScrollRef.current = null;
+      // Small delay to ensure refs are registered after render
+      setTimeout(() => scrollToSection(target), 100);
+    }
+  }, [sections.length]);
 
   // Auto-scroll to section based on ruleId or sectionPath
   useEffect(() => {
@@ -184,7 +198,7 @@ export function DocumentViewer({
       .trim();
   };
 
-  const scrollToSection = (sectionIdentifier: string) => {
+  const scrollToSection = (sectionIdentifier: string, retryCount = 0) => {
     // First, check if this is a rule ID (e.g., "1.1.1")
     const isRuleId = /^\d+\.\d+(\.\d+)?$/.test(sectionIdentifier);
     
@@ -195,15 +209,17 @@ export function DocumentViewer({
         setActiveRuleId(sectionIdentifier);
         setActiveSection(null);
         
-        setTimeout(() => {
-          ruleElement.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'center',
-          });
-        }, 100);
+        // Scroll immediately
+        ruleElement.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center',
+        });
         
-        // Clear highlight after 5 seconds
-        setTimeout(() => setActiveRuleId(null), 5000);
+        // Highlight persists until next click (no auto-clear)
+        return;
+      } else if (retryCount < 5) {
+        // Element not yet rendered, retry after delay
+        setTimeout(() => scrollToSection(sectionIdentifier, retryCount + 1), 150);
         return;
       }
     }
@@ -222,16 +238,13 @@ export function DocumentViewer({
         setActiveSection(section.id);
         setActiveRuleId(null);
         
-        // Delay scroll slightly to ensure rendering
-        setTimeout(() => {
-          element.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'center',
-          });
-        }, 100);
+        // Scroll immediately
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center',
+        });
         
-        // Clear highlight after 4 seconds
-        setTimeout(() => setActiveSection(null), 4000);
+        // Highlight persists until next click (no auto-clear)
       }
     }
   };

@@ -23,11 +23,14 @@ from services.rag_chat_service import get_rag_chat_service
 from services.graphrag_chat_service import get_graphrag_chat_service
 from services.custom_chat_service import get_custom_chat_service
 from services.custom_guideline_service import get_custom_guideline_service
+from services.section_retriever import get_section_retriever
 from config.config import Settings, get_settings
 from config.logging_config import configure_logging, get_logger, log_request_context
 from models.models import (
     ChatRequest,
     ChatResponse,
+    CompileRequest,
+    CompileResponse,
     ErrorResponse,
     HealthResponse,
     HealthStatus,
@@ -50,6 +53,7 @@ async def lifespan(app: FastAPI):
     Application lifespan manager.
     
     Handles startup and shutdown events with proper logging.
+    Pre-loads expensive resources (embeddings, indices) at startup.
     """
     settings = get_settings()
     
@@ -61,6 +65,26 @@ async def lifespan(app: FastAPI):
         environment=settings.environment,
         config=settings.get_safe_config_dict(),
     )
+    
+    # Pre-load section retriever with BM25 index and embeddings
+    # This takes ~4 seconds but only happens once at startup
+    logger.info("Pre-loading section retriever and embeddings...")
+    try:
+        retriever = get_section_retriever()
+        logger.info(
+            "Section retriever pre-loaded",
+            total_sections=len(retriever.sections),
+            sections_with_criteria=sum(1 for s in retriever.sections if s["has_criteria"])
+        )
+    except Exception as e:
+        logger.error(f"Failed to pre-load section retriever: {e}")
+    
+    # Pre-load custom chat service (which uses the retriever)
+    try:
+        get_custom_chat_service()
+        logger.info("Custom chat service pre-loaded")
+    except Exception as e:
+        logger.error(f"Failed to pre-load custom chat service: {e}")
     
     yield
     
@@ -319,6 +343,44 @@ def register_routes(app: FastAPI) -> None:
         return StreamingResponse(
             custom_service.process_message_stream(request),
             media_type="text/event-stream",
+        )
+    
+    @app.post("/api/v1/chat/custom/compile", response_model=CompileResponse, tags=["Chat"])
+    async def chat_custom_compile(
+        request: CompileRequest,
+    ) -> CompileResponse:
+        """
+        Compile a recommendation based on patient criteria.
+        
+        Called from the pathway UI after the clinician fills in patient criteria.
+        Returns a bold-formatted recommendation with clear action, rationale, and source.
+        
+        **Request:**
+        - recommendation_id: The NG12 recommendation to check (e.g., "1.1.2")
+        - patient_criteria: Dict with patient data (age, smoking, symptoms, etc.)
+        
+        **Response:**
+        - response: Bold-formatted recommendation text
+        - meets_criteria: Whether the patient meets the threshold
+        - matched_recommendation: The recommendation ID
+        - artifacts: Source artifacts for traceability
+        """
+        logger.info(
+            "Compile request received",
+            recommendation_id=request.recommendation_id,
+        )
+        
+        custom_service = get_custom_chat_service()
+        result = await custom_service.compile_recommendation(
+            recommendation_id=request.recommendation_id,
+            patient_criteria=request.patient_criteria,
+        )
+        
+        return CompileResponse(
+            response=result["response"],
+            meets_criteria=result["meets_criteria"],
+            matched_recommendation=result["matched_recommendation"],
+            artifacts=result["artifacts"],
         )
     
     @app.post("/api/v1/chat/graphrag", response_model=ChatResponse, tags=["Chat"])

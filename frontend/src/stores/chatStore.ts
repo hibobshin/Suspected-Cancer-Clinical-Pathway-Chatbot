@@ -32,6 +32,7 @@ interface ChatState {
   setSolutionMode: (mode: SolutionMode) => void;
   setRouteType: (type: PathwayRouteType) => void;
   setShowArtifacts: (show: boolean) => void;
+  addPathwayResponse: (message: ChatMessage) => void;
 }
 
 // Store abort controller outside of state (not serializable)
@@ -183,12 +184,13 @@ export const useChatStore = create<ChatState>()(
         currentAbortController = new AbortController();
         
         // Build context from previous messages
+        // Filter out typing messages and messages with empty content (validation requires min_length=1)
         const previousMessages = conversation.messages
-          .filter(m => !m.isTyping)
+          .filter(m => !m.isTyping && m.content && m.content.trim().length > 0)
           .slice(-10)
           .map(m => ({
             role: m.role as 'user' | 'assistant',
-            content: m.content,
+            content: m.content.trim(),
             timestamp: m.timestamp.toISOString(),
           }));
         
@@ -273,6 +275,8 @@ export const useChatStore = create<ChatState>()(
                           response_type: event.response_type as ResponseType,
                           citations: event.citations,
                           artifacts: event.artifacts,
+                          pathway_available: event.pathway_available,
+                          pathway_spec: event.pathway_spec,
                         }
                       : m
                   ),
@@ -351,6 +355,25 @@ export const useChatStore = create<ChatState>()(
       // Toggle artifact visibility
       setShowArtifacts: (show: boolean) => {
         set({ showArtifacts: show });
+      },
+      
+      // Add pathway response as a new message
+      addPathwayResponse: (message: ChatMessage) => {
+        const { activeConversationId, conversations } = get();
+        if (!activeConversationId) return;
+        
+        set({
+          conversations: conversations.map(conv => {
+            if (conv.id !== activeConversationId) return conv;
+            return {
+              ...conv,
+              messages: [...conv.messages, message],
+              updatedAt: new Date(),
+            };
+          }),
+        });
+        
+        console.log('[Chat] Added pathway response');
       },
     }),
     {
