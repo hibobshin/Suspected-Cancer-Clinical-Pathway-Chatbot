@@ -90,7 +90,8 @@ export function ChatWindow() {
   const [documentViewerOpen, setDocumentViewerOpen] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState<string | undefined>();
   const [selectedSectionPath, setSelectedSectionPath] = useState<string | undefined>();
-  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
+  // Used for hover effects on artifact buttons (optional visual feedback)
+  const [, setHoveredSection] = useState<string | null>(null);
   
   const messages = activeConversation?.messages ?? [];
   
@@ -312,7 +313,7 @@ export function ChatWindow() {
             setDocumentViewerOpen(false);
             setSelectedRuleId(undefined);
             setSelectedSectionPath(undefined);
-            setHoveredSection(null);
+            setScrollRequest(null);
           }}
           ruleId={selectedRuleId}
           sectionPath={selectedSectionPath}
@@ -422,12 +423,29 @@ function MessageBubble({
   
   const handleCitationClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
+    
+    // Handle citation links
     if (target.classList.contains('citation-link')) {
       const ruleId = target.getAttribute('data-rule-id');
       const section = target.getAttribute('data-section');
       if (ruleId && onArtifactClick) {
         onArtifactClick({
           section: section || `NG12 > ${ruleId}`,
+          text: '',
+          source: 'NICE NG12',
+          source_url: 'https://www.nice.org.uk/guidance/ng12',
+          relevance_score: 0,
+          rule_id: ruleId,
+        });
+      }
+    }
+    
+    // Handle NG12 badge clicks
+    if (target.classList.contains('ng12-badge')) {
+      const ruleId = target.getAttribute('data-rule-id');
+      if (ruleId && onArtifactClick) {
+        onArtifactClick({
+          section: `NG12 ${ruleId}`,
           text: '',
           source: 'NICE NG12',
           source_url: 'https://www.nice.org.uk/guidance/ng12',
@@ -491,6 +509,7 @@ function MessageBubble({
               dangerouslySetInnerHTML={{
                 __html: formatMessage(message.content),
               }}
+              onClick={handleCitationClick}
             />
             <span className="inline-block w-2 h-4 bg-primary-500 animate-pulse ml-0.5" />
           </div>
@@ -681,6 +700,10 @@ function formatMessage(content: string): string {
   formatted = formatted.replace(/&gt;/g, '>');
   formatted = formatted.replace(/&amp;/g, '&');
   
+  // Pre-process: Combine lines where text is followed by orphaned NG12 reference
+  // e.g., "Refer for stomach cancer\nNG12 1.2.7" → "Refer for stomach cancer NG12 1.2.7"
+  formatted = formatted.replace(/^([^\n*•-][^\n]+[a-zA-Z])\n(NG12\s+[\d.]+)\s*$/gm, '$1 $2');
+  
   // Convert citations
   formatted = parseCitations(formatted);
   
@@ -715,9 +738,9 @@ function formatMessage(content: string): string {
   formatted = formatted.replace(/^##\s+(.+)$/gm, 
     '<h2 class="font-bold text-surface-900 mt-5 mb-3 text-lg">$1</h2>');
   
-  // Convert NG12 references on their own line to inline badges (cleanup orphaned refs)
-  formatted = formatted.replace(/^\s*(NG12\s+[\d.]+)\s*$/gm, 
-    '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700 mb-2">$1</span>');
+  // Convert NG12 references on their own line to clickable badges (cleanup orphaned refs)
+  formatted = formatted.replace(/^\s*NG12\s+([\d.]+)\s*$/gm, 
+    '<span class="ng12-badge inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700 mb-2 cursor-pointer hover:bg-primary-200 transition-colors" data-rule-id="$1">NG12 $1</span>');
   
   // Handle field labels on their own lines (Recommendation:, Criteria:, Action:)
   // and convert following indented/short lines as nested bullets
@@ -765,9 +788,9 @@ function formatMessage(content: string): string {
   // Convert *italic* (but not **bold**)
   formatted = formatted.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em class="text-surface-600">$1</em>');
   
-  // Convert remaining NG12 references inline to styled badges
-  formatted = formatted.replace(/\b(NG12\s+\d+\.\d+(?:\.\d+)?)\b/g, 
-    '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700">$1</span>');
+  // Convert remaining NG12 references inline to clickable badges
+  formatted = formatted.replace(/\bNG12\s+(\d+\.\d+(?:\.\d+)?)\b/g, 
+    '<span class="ng12-badge inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700 cursor-pointer hover:bg-primary-200 transition-colors" data-rule-id="$1">NG12 $1</span>');
   
   // Process paragraphs - split by double newlines
   const sections = formatted.split(/\n\n+/);
@@ -820,9 +843,9 @@ function formatArtifactText(text: string): string {
   // Convert bullet points
   formatted = formatted.replace(/^\s*[-•*]\s+(.+)$/gm, '<span class="block ml-3">• $1</span>');
   
-  // Convert NG12 references to badges
-  formatted = formatted.replace(/\b(NG12\s+\d+\.\d+(?:\.\d+)?)\b/g, 
-    '<span class="inline-flex px-1 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700">$1</span>');
+  // Convert NG12 references to clickable badges
+  formatted = formatted.replace(/\bNG12\s+(\d+\.\d+(?:\.\d+)?)\b/g, 
+    '<span class="ng12-badge inline-flex px-1 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-700 cursor-pointer hover:bg-primary-200 transition-colors" data-rule-id="$1">NG12 $1</span>');
   
   return formatted;
 }

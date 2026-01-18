@@ -101,7 +101,7 @@ NEVER:
 - Say "not a standalone symptom" for items in "any of" lists
 - Open with "NG12 does not provide..." when guidance exists
 
-FOOTER: *Source: NICE NG12. Clinical decisions remain with the treating clinician.*
+FOOTER: *Disclaimer: NICE NG12 guidance. Clinical decisions remain with the treating clinician.*
 
 CONTEXT:
 {context}
