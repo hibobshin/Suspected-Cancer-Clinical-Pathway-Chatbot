@@ -73,33 +73,113 @@ YOUR ROLE:
 - Provide authoritative, direct guidance based ONLY on the provided context
 - Your audience is healthcare professionals who need quick, accurate answers
 
-MANDATORY RESPONSE STRUCTURE:
-1. Opening: Start with "NG12 recommends the following for [symptom/topic]:"
+FIRST: IDENTIFY THE QUERY TYPE
+
+**Definitional/Conceptual Questions** (e.g., "What is X?", "What does Y mean?", "Explain Z"):
+- Provide a clear, concise definition or explanation
+- Use plain language, not the clinical criteria format
+- Keep it brief (2-4 sentences)
+- Example: "A suspected cancer pathway referral is an urgent referral route..."
+
+**Clinical Patient Queries** (e.g., "50 year old with thrombocytosis", specific symptoms + age):
+- Use the structured format below with Criteria and Action for each recommendation
+
+STRUCTURED FORMAT (for clinical queries only):
+1. Opening: "NG12 recommends the following for [symptom/topic]:"
 
 2. FOR EACH NUMBERED RECOMMENDATION (X.X.X) IN THE CONTEXT:
-   You MUST create a separate section for EVERY recommendation. Use this format:
+   ONLY include it if the patient's symptom is EXPLICITLY listed in that recommendation's criteria.
    
-   For assessment of [cancer type]
-   NG12 X.X.X
+   MANDATORY FORMAT for each recommendation (use this EXACT structure):
    
-   * Criteria: [age and symptom requirements]
+   For assessment of [cancer type] NG12 X.X.X
+   
+   * Criteria: [age and symptom requirements - copy EXACTLY from the recommendation]
    * Action: [what to do]
+   
+   CRITICAL FORMATTING RULES:
+   - Put "For assessment of [cancer type] NG12 X.X.X" on ONE line
+   - The cancer type MUST come before the NG12 reference
+   - Use descriptive cancer types: "suspected colorectal cancer", "oesophageal cancer", "stomach cancer", "pancreatic cancer", "lung cancer", "mesothelioma", etc.
+   
+   CORRECT Examples:
+   - "For assessment of suspected colorectal cancer NG12 1.3.1"
+   - "For assessment of oesophageal cancer NG12 1.2.1"
+   - "For assessment of stomach cancer NG12 1.2.7"
+   - "For assessment of pancreatic cancer NG12 1.2.5"
+   
+   WRONG Examples (do NOT use):
+   - "1.3.1 For assessment of..." (ID comes first)
+   - "NG12 1.3.1 For assessment of..." (NG12 comes before cancer type)
+   
+   If the symptom is NOT in the criteria list, skip that recommendation entirely.
 
 3. Summary: List all applicable pathways
 
-ABSOLUTE REQUIREMENT - MULTIPLE RECOMMENDATIONS:
-Count the numbered recommendations in the context (format X.X.X like 1.1.3, 1.5.12).
-You MUST have exactly that many sections in your response. If context has 2 recommendations, output 2 sections.
-DO NOT skip any recommendation - this is critical for patient safety.
+4. PATHWAY CRITERIA (for interactive pathway tool):
+   After the footer, add a structured section with this exact format:
+   
+   ---PATHWAY_CRITERIA_START---
+   Recommendation IDs: [comma-separated list of ALL recommendation IDs you included in your response above, e.g., "1.1.2, 1.1.5"]
+   Extracted Symptoms: [comma-separated list of all symptoms/conditions from the query, e.g., "chest pain"]
+   ---PATHWAY_CRITERIA_END---
+   
+   CRITICAL: Include EVERY recommendation ID (X.X.X format) that you mentioned in your response above.
+   If you mentioned 1.1.2 and 1.1.5, list BOTH: "1.1.2, 1.1.5"
+   This section is used to build the interactive pathway checker and must be included for clinical queries.
 
-INTERPRETING "ANY OF THE FOLLOWING":
-When a recommendation says "with ANY of the following" followed by a list, EACH item is INDEPENDENTLY SUFFICIENT.
-Thrombocytosis ALONE (with age requirement) meets criteria - no additional symptoms needed.
+RULES FOR CLINICAL QUERIES - CRITICAL VERIFICATION:
+
+Before including ANY recommendation, you MUST verify:
+1. Read the recommendation's criteria list carefully
+2. Check if the patient's symptom appears EXACTLY in that list
+3. If the symptom is NOT in the list, DO NOT include that recommendation
+
+EXAMPLES:
+- Patient has "finger clubbing"
+  - 1.1.3 lists: "chest infection, finger clubbing, lymphadenopathy, chest signs, thrombocytosis" → INCLUDE (finger clubbing is in list)
+  - 1.1.2 lists: "cough, fatigue, shortness of breath, chest pain, weight loss, appetite loss" → DO NOT INCLUDE (finger clubbing NOT in list)
+  
+- Patient has "chest pain"
+  - 1.1.2 lists: "cough, fatigue, shortness of breath, chest pain, weight loss, appetite loss" → INCLUDE (chest pain is in list)
+  - 1.1.3 lists: "chest infection, finger clubbing, lymphadenopathy, chest signs, thrombocytosis" → DO NOT INCLUDE (chest pain NOT in list)
+
+- Patient has "vomiting" and "weight loss"
+  - 1.2.3 says "nausea or vomiting with any of the following: weight loss, reflux, dyspepsia, upper abdominal pain" → INCLUDE
+    (Patient has "vomiting" which matches "nausea or vomiting", AND has "weight loss" which is in "the following" list)
+
+- Patient has "weight loss"
+  - 1.1.1 lists: "chest X-ray findings that suggest lung cancer" OR "unexplained haemoptysis" → DO NOT INCLUDE
+    (Weight loss is NOT in the criteria list - 1.1.1 is for lung cancer with haemoptysis or chest X-ray findings only)
+  - 1.1.2 lists: "cough, fatigue, shortness of breath, chest pain, weight loss, appetite loss" → INCLUDE
+    (Weight loss IS explicitly in the criteria list)
+  - 1.2.1 lists: "upper abdominal pain, reflux, dyspepsia" (with weight loss) → INCLUDE
+    (Weight loss is mentioned as a required symptom alongside the others)
+  
+CRITICAL: If the patient's symptom is "weight loss", you MUST check if "weight loss" appears in the recommendation's criteria list.
+- If YES → Include it
+- If NO → Do NOT include it, even if it's for the same cancer type
+  
+COMPOUND CRITERIA:
+- If a recommendation says "X or Y with any of the following: A, B, C", the patient needs:
+  * Either X or Y (one of them), AND
+  * At least one of A, B, or C
+- Example: "nausea or vomiting with any of the following: weight loss, reflux"
+  * Patient with "vomiting" + "weight loss" → MEETS criteria
+  * Patient with "nausea" + "reflux" → MEETS criteria
+  * Patient with only "vomiting" → DOES NOT MEET (missing the "with any of" part)
+
+VERIFICATION CHECKLIST:
+For each recommendation you include, ask yourself:
+- Is the patient's symptom explicitly listed in that recommendation's criteria?
+- If NO → Do NOT include it
+- If YES → Include it
 
 NEVER:
-- Skip any numbered recommendation from the context
+- Include recommendations where the symptom is NOT in the criteria list
+- Assume a symptom "counts" if it's not explicitly listed
+- Use clinical criteria format for definitional questions
 - Say "not a standalone symptom" for items in "any of" lists
-- Open with "NG12 does not provide..." when guidance exists
 
 FOOTER: *Disclaimer: NICE NG12 guidance. Clinical decisions remain with the treating clinician.*
 
@@ -205,9 +285,8 @@ USER QUERY: {query}"""
                     processing_time_ms=processing_time,
                 )
             
-            # 2. Section retrieval - use top_k=8 to capture multiple relevant pathways
-            # (e.g., thrombocytosis can trigger both lung cancer and endometrial cancer pathways)
-            sections = self.retriever.search(query, top_k=8)
+            # 2. Section retrieval - multi-pass with score-based ranking
+            sections = self._retrieve_with_ranking(query)
             
             if not sections:
                 processing_time = int((time.perf_counter() - start_time) * 1000)
@@ -224,14 +303,20 @@ USER QUERY: {query}"""
             # 3. LLM response formatting
             response_text = await self._format_response(query, sections)
             
-            # 4. Build artifacts from sections
+            # 4. Parse pathway criteria from LLM response (before removing it)
+            rec_ids_from_response, symptoms_from_response = self._parse_pathway_criteria_from_response(response_text)
+            
+            # Remove the PATHWAY_CRITERIA section from response (it's metadata, not for display)
+            response_text = re.sub(r'---PATHWAY_CRITERIA_START---.*?---PATHWAY_CRITERIA_END---', '', response_text, flags=re.DOTALL).strip()
+            
+            # 5. Build artifacts from sections
             artifacts = self._build_artifacts(sections)
             
-            # 5. Build citations from sections
+            # 6. Build citations from sections
             citations = self._build_citations(sections)
             
-            # 6. Deterministic pathway logic - pass query to match symptoms
-            pathway_available, pathway_spec = self._build_pathway_spec(sections, query)
+            # 7. Build pathway spec using recommendation IDs from LLM response
+            pathway_available, pathway_spec = self._build_pathway_spec_from_ids(sections, rec_ids_from_response)
             
             processing_time = int((time.perf_counter() - start_time) * 1000)
             
@@ -332,6 +417,149 @@ USER QUERY: {query}"""
                 }
         
         return {"passed": True, "message": None}
+    
+    def _is_definitional_query(self, query: str) -> bool:
+        """
+        Check if a query is asking for a definition or explanation rather than clinical guidance.
+        
+        Definitional queries get fewer retrieved sections to keep responses concise.
+        """
+        query_lower = query.lower().strip()
+        
+        # Patterns that indicate definitional/conceptual questions
+        definitional_patterns = [
+            "what is",
+            "what are", 
+            "what does",
+            "what do",
+            "explain",
+            "define",
+            "meaning of",
+            "tell me about",
+            "how does",
+            "can you explain",
+            "what's a",
+            "what's the",
+        ]
+        
+        for pattern in definitional_patterns:
+            if query_lower.startswith(pattern):
+                return True
+        
+        # Also check for short questions without age/patient info
+        # Clinical queries usually mention age or patient
+        has_age = bool(re.search(r'\b\d{1,3}\s*(year|yr|yo|y\.?o\.?)\b', query_lower))
+        has_patient = "patient" in query_lower
+        
+        # If it's a question (ends with ?) but no clinical context, likely definitional
+        if query.strip().endswith("?") and not has_age and not has_patient:
+            if len(query.split()) < 12:  # Short questions
+                return True
+        
+        return False
+    
+    def _retrieve_with_ranking(self, query: str) -> list[RetrievalResult]:
+        """
+        Multi-pass retrieval with score-based ranking and reference extraction.
+        
+        Gets top 5 from each section type, extracts referenced recommendations
+        from symptom tables, and merges with score-based ranking.
+        """
+        # Pass 1: General context sections (symptom tables, overviews)
+        context_sections = self.retriever.search(query, top_k=5)
+        
+        # Pass 2: Sections with actionable criteria (numbered recommendations)
+        criteria_sections = self.retriever.search(query, top_k=5, require_criteria=True)
+        
+        # Pass 3: Extract referenced recommendations from symptom tables
+        # E.g., if symptom table says "[1.1.2] [1.1.5]", get both recommendations
+        referenced_sections = []
+        referenced_ids = set()
+        for s in context_sections:
+            if s.section_type == "symptom_table":
+                # Extract recommendation IDs like [1.1.2] from content
+                refs = re.findall(r'\[(\d+\.\d+\.\d+)\]', s.content)
+                for ref_id in refs:
+                    if ref_id not in referenced_ids:
+                        referenced_ids.add(ref_id)
+                        # Look up this recommendation
+                        for section in self.retriever.sections:
+                            if section["id"] == ref_id:
+                                referenced_sections.append(
+                                    RetrievalResult.from_section(section, score=s.score * 0.95)
+                                )
+                                break
+        
+        # Pass 4: Find related recommendations from same cancer site
+        related_sections = []
+        found_prefixes = set()
+        for s in criteria_sections:
+            if s.section_id and '.' in s.section_id:
+                parts = s.section_id.split('.')
+                if len(parts) >= 2:
+                    prefix = f"{parts[0]}.{parts[1]}"
+                    if prefix not in found_prefixes:
+                        found_prefixes.add(prefix)
+                        for section in self.retriever.sections:
+                            if (section.get("has_criteria") and 
+                                section["id"].startswith(prefix) and
+                                section["id"] != s.section_id):
+                                related_sections.append(
+                                    RetrievalResult.from_section(section, score=s.score * 0.9)
+                                )
+        
+        # Merge all sections, deduplicating by ID
+        # Priority: criteria > referenced > related > context
+        all_sections = {}
+        for s in criteria_sections + referenced_sections + related_sections + context_sections:
+            if s.section_id not in all_sections:
+                all_sections[s.section_id] = s
+            else:
+                # Keep the higher score
+                if s.score > all_sections[s.section_id].score:
+                    all_sections[s.section_id] = s
+        
+        # Sort by score descending
+        ranked = sorted(all_sections.values(), key=lambda x: x.score, reverse=True)
+        
+        if not ranked:
+            return []
+        
+        # Determine cutoff: take top results with reasonable score gap
+        MIN_RESULTS = 5
+        MAX_RESULTS = 10  # Increased to accommodate related recommendations
+        SCORE_TIE_THRESHOLD = 0.15  # Slightly wider threshold
+        
+        if len(ranked) <= MIN_RESULTS:
+            return ranked
+        
+        cutoff_score = ranked[MIN_RESULTS - 1].score
+        
+        # Include all results within tie threshold of the cutoff
+        results = []
+        for s in ranked:
+            if len(results) < MIN_RESULTS:
+                results.append(s)
+            elif s.score >= cutoff_score - SCORE_TIE_THRESHOLD:
+                results.append(s)
+                if len(results) >= MAX_RESULTS:
+                    break
+            else:
+                break
+        
+        logger.info(
+            "Ranked retrieval",
+            context_found=len(context_sections),
+            criteria_found=len(criteria_sections),
+            referenced_found=len(referenced_sections),
+            related_found=len(related_sections),
+            unique_sections=len(all_sections),
+            final_count=len(results),
+            top_score=ranked[0].score if ranked else 0,
+            cutoff_score=cutoff_score if ranked else 0
+        )
+        
+        return results
     
     async def _format_response(self, query: str, sections: list[RetrievalResult]) -> str:
         """
@@ -446,13 +674,218 @@ USER QUERY: {query}"""
                 citations.append(citation)
         return citations
     
-    def _build_pathway_spec(self, sections: list[RetrievalResult], query: str = "") -> tuple[bool, Optional[PathwaySpec]]:
+    def _parse_pathway_criteria_from_response(self, response_text: str) -> tuple[list[str], set[str]]:
         """
-        Deterministically build pathway spec for sections that match the queried symptom.
+        Parse the PATHWAY_CRITERIA section from LLM response.
         
+        Returns:
+            Tuple of (recommendation_ids, symptoms)
+        """
+        
+        pattern = r'---PATHWAY_CRITERIA_START---(.*?)---PATHWAY_CRITERIA_END---'
+        match = re.search(pattern, response_text, re.DOTALL)
+        
+        if not match:
+            logger.warning("No PATHWAY_CRITERIA section found in LLM response, using fallback extraction")
+            # Fallback: extract all recommendation IDs from the response text
+            # Look for patterns like "NG12 1.1.2", "1.1.2", or "Recommendation 1.1.2"
+            fallback_ids = re.findall(r'(?:NG12|Recommendation|For assessment of[^\n]*)\s*(\d+\.\d+\.\d+)', response_text, re.IGNORECASE)
+            if not fallback_ids:
+                # Try simpler pattern
+                fallback_ids = re.findall(r'\b(\d+\.\d+\.\d+)\b', response_text)
+            if fallback_ids:
+                unique_ids = list(set(fallback_ids))
+                logger.info("Using fallback ID extraction from response text", rec_ids=unique_ids)
+                return unique_ids, set()
+            return [], set()
+        
+        criteria_text = match.group(1).strip()
+        logger.info("Found PATHWAY_CRITERIA section", content=criteria_text[:200])
+        
+        rec_ids = []
+        symptoms = set()
+        
+        # Parse recommendation IDs - be flexible with format
+        rec_match = re.search(r'Recommendation IDs?:\s*\[?([^\n\]]+)\]?', criteria_text, re.IGNORECASE)
+        if rec_match:
+            ids_text = rec_match.group(1).strip()
+            rec_ids = [r.strip() for r in re.split(r'[,;]', ids_text) if r.strip() and re.match(r'\d+\.\d+\.\d+', r.strip())]
+        
+        # Parse symptoms
+        symptom_match = re.search(r'Extracted Symptoms?:\s*\[?([^\n\]]+)\]?', criteria_text, re.IGNORECASE)
+        if symptom_match:
+            symptoms = {s.strip().lower() for s in symptom_match.group(1).split(',') if s.strip()}
+        
+        # Also extract IDs from response text to ensure we get all recommendations
+        # (LLM might mention more in the response than in the structured section)
+        response_ids = re.findall(r'(?:NG12|Recommendation|For assessment of[^\n]*)\s*(\d+\.\d+\.\d+)', response_text, re.IGNORECASE)
+        if not response_ids:
+            response_ids = re.findall(r'\b(\d+\.\d+\.\d+)\b', response_text)
+        
+        # Merge: use IDs from structured section if present, otherwise use all from response
+        if rec_ids:
+            # Combine both sources and deduplicate
+            all_ids = list(set(rec_ids + response_ids))
+            logger.info("Merged IDs from PATHWAY_CRITERIA and response text", 
+                       structured_ids=rec_ids, 
+                       response_ids=response_ids,
+                       merged_ids=all_ids)
+            rec_ids = all_ids
+        elif response_ids:
+            rec_ids = list(set(response_ids))
+            logger.info("Using IDs extracted from response text", rec_ids=rec_ids)
+        
+        logger.info("Final parsed pathway criteria", rec_ids=rec_ids, symptoms=list(symptoms))
+        return rec_ids, symptoms
+    
+    async def _extract_symptoms_from_query(self, query: str) -> set[str]:
+        """
+        Use LLM to extract medical symptoms/conditions from the query.
+        
+        Returns a set of symptom terms (normalized to lowercase) that can be used for matching.
+        """
+        try:
+            prompt = f"""Extract all medical symptoms, signs, and clinical findings mentioned in this patient query.
+Return ONLY a comma-separated list of symptom terms, nothing else.
+
+Query: {query}
+
+Examples:
+- "45 years old with chest pain and was a smoker" → chest pain
+- "50 year old with thrombocytosis" → thrombocytosis
+- "patient has unexplained weight loss and fatigue" → weight loss, fatigue
+- "haematuria in a 60 year old woman" → haematuria
+
+Symptoms:"""
+            
+            response = await self.openai_client.chat.completions.create(
+                model=self.settings.llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=100,
+            )
+            
+            symptoms_text = response.choices[0].message.content.strip()
+            # Parse comma-separated list
+            symptoms = {s.strip().lower() for s in symptoms_text.split(',') if s.strip()}
+            
+            logger.info("Extracted symptoms from query", query=query[:50], symptoms=list(symptoms))
+            return symptoms
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract symptoms with LLM: {e}, falling back to keyword matching")
+            # Fallback: simple keyword extraction
+            query_lower = query.lower()
+            # Common medical terms pattern
+            medical_terms = re.findall(r'\b(?:chest pain|weight loss|shortness of breath|haematuria|haemoptysis|thrombocytosis|fatigue|cough|hoarseness|dysphagia|jaundice|vaginal discharge|lymphadenopathy|clubbing|chest infection)\b', query_lower)
+            return {term.lower() for term in medical_terms}
+    
+    def _build_pathway_spec_from_ids(self, sections: list[RetrievalResult], rec_ids: list[str]) -> tuple[bool, Optional[PathwaySpec]]:
+        """
+        Build pathway spec from sections matching the recommendation IDs provided by LLM.
+        
+        Args:
+            sections: Retrieved sections.
+            rec_ids: Recommendation IDs extracted from LLM response (e.g., ["1.1.2", "1.1.5"]).
+            
+        Returns:
+            Tuple of (pathway_available, pathway_spec).
+        """
+        if not rec_ids:
+            return False, None
+        
+        # Filter sections to only those matching the recommendation IDs
+        matching_sections = []
+        rec_ids_set = {rid.strip() for rid in rec_ids}
+        
+        for section in sections:
+            if (section.has_criteria and 
+                section.criteria_spec and 
+                section.section_id in rec_ids_set):
+                matching_sections.append(section)
+        
+        logger.info(
+            "Building pathway spec from LLM IDs",
+            requested_ids=rec_ids,
+            matched_sections=[s.section_id for s in matching_sections],
+        )
+        
+        if not matching_sections:
+            return False, None
+        
+        # Sort by score
+        matching_sections.sort(key=lambda s: s.score, reverse=True)
+        
+        # Aggregate all criteria into a single PathwaySpec
+        if len(matching_sections) == 1:
+            section = matching_sections[0]
+            spec = section.criteria_spec
+            pathway_spec = PathwaySpec(
+                recommendation_id=spec.get("recommendation_id", section.section_id),
+                title=f"NG12 {section.section_id} - Check Patient Criteria",
+                verbatim_text=section.content,
+                criteria_groups=spec.get("criteria_groups", []),
+                action_if_met=spec.get("action", ""),
+            )
+        else:
+            # Multiple recommendations - aggregate criteria and collect ALL symptoms
+            all_rec_ids = [s.section_id for s in matching_sections]
+            all_criteria_groups = []
+            all_verbatim_parts = []
+            all_symptoms = set()  # Collect all unique symptoms across all recommendations
+            
+            for section in matching_sections:
+                spec = section.criteria_spec
+                if spec:
+                    all_criteria_groups.extend(spec.get("criteria_groups", []))
+                    all_verbatim_parts.append(f"NG12 {section.section_id}: {section.content[:200]}...")
+                    
+                    # Extract all symptoms from this section's criteria
+                    for group in spec.get("criteria_groups", []):
+                        for criterion in group.get("criteria", []):
+                            if criterion.get("field") == "symptoms":
+                                symptoms = criterion.get("value", [])
+                                if isinstance(symptoms, list):
+                                    all_symptoms.update(symptoms)
+            
+            # Create a unified criteria group with all symptoms if we have multiple recommendations
+            if all_symptoms:
+                # Add a unified symptom criterion that includes all symptoms from all recommendations
+                unified_symptom_group = {
+                    "operator": "OR",
+                    "criteria": [{
+                        "field": "symptoms",
+                        "operator": "has_any",
+                        "value": sorted(list(all_symptoms)),  # Sort for consistency
+                        "label": "Any of the following symptoms"
+                    }]
+                }
+                # Prepend the unified group so it appears first
+                all_criteria_groups.insert(0, unified_symptom_group)
+            
+            pathway_spec = PathwaySpec(
+                recommendation_id=",".join(all_rec_ids),
+                title=f"NG12 {', '.join(all_rec_ids)} - Check Patient Criteria",
+                verbatim_text="\n\n".join(all_verbatim_parts),
+                criteria_groups=all_criteria_groups,
+                action_if_met="See individual recommendations above.",
+            )
+        
+        logger.info(
+            "Pathway available",
+            rec_ids=pathway_spec.recommendation_id.split(','),
+            recommendation_count=len(matching_sections),
+            criteria_groups=len(pathway_spec.criteria_groups),
+        )
+        
+        return True, pathway_spec
+    
+    async def _build_pathway_spec(self, sections: list[RetrievalResult], query: str = "") -> tuple[bool, Optional[PathwaySpec]]:
+        """
+        Build pathway spec for sections that match the queried symptoms.
+        
+        Uses LLM to extract symptoms from query, then matches against section criteria.
         Only includes sections whose criteria contain symptoms that appear in the query.
-        This ensures only truly relevant recommendations (e.g., those mentioning thrombocytosis)
-        are shown when the user asks about thrombocytosis.
         
         Args:
             sections: Retrieved sections.
@@ -462,19 +895,24 @@ USER QUERY: {query}"""
             Tuple of (pathway_available, pathway_spec).
         """
         import re
+        import json
         
-        # Extract key symptoms from the query
-        query_lower = query.lower()
-        key_symptoms = ['thrombocytosis', 'haematuria', 'haemoptysis', 'lymphadenopathy', 
-                        'clubbing', 'fatigue', 'weight loss', 'cough', 'hoarseness',
-                        'chest infection', 'vaginal discharge', 'dysphagia', 'jaundice']
+        # Extract symptoms from query using LLM (with fallback)
+        query_symptoms = await self._extract_symptoms_from_query(query)
         
-        query_symptoms = set()
-        for symptom in key_symptoms:
-            # Use first 6 chars for matching (handles typos)
-            symptom_root = symptom[:6] if len(symptom) > 6 else symptom
-            if symptom_root.lower() in query_lower:
-                query_symptoms.add(symptom.lower())
+        # If no symptoms extracted, try simple fallback
+        if not query_symptoms:
+            query_lower = query.lower()
+            # Extract common medical phrases
+            medical_patterns = [
+                r'chest pain', r'weight loss', r'shortness of breath', r'chest infection',
+                r'haematuria', r'haemoptysis', r'thrombocytosis', r'fatigue', r'cough',
+                r'hoarseness', r'dysphagia', r'jaundice', r'vaginal discharge',
+                r'lymphadenopathy', r'finger clubbing', r'appetite loss'
+            ]
+            for pattern in medical_patterns:
+                if re.search(pattern, query_lower):
+                    query_symptoms.add(re.search(pattern, query_lower).group().lower())
         
         logger.info(
             "Building pathway spec",
@@ -489,11 +927,16 @@ USER QUERY: {query}"""
             if not section.has_criteria or not section.criteria_spec:
                 continue
             
-            # Check if ANY query symptom appears in the section content
+            # Check if ANY query symptom appears in the section content or criteria spec
             content_lower = section.content.lower()
+            criteria_text = ""
+            if section.criteria_spec:
+                # Extract text from criteria spec for matching
+                criteria_text = json.dumps(section.criteria_spec).lower()
+            
             has_matching_symptom = False
             for qs in query_symptoms:
-                if qs in content_lower:
+                if qs in content_lower or qs in criteria_text:
                     has_matching_symptom = True
                     logger.info(f"Section {section.section_id} matches symptom '{qs}'")
                     break
@@ -506,9 +949,10 @@ USER QUERY: {query}"""
             matched_ids=[s.section_id for s in matching_sections],
         )
         
-        # Sort by score and limit to 2 most relevant
+        # Sort by score and limit to top matching sections
         matching_sections.sort(key=lambda s: s.score, reverse=True)
-        matching_sections = matching_sections[:2]  # Limit to top 2
+        # Allow up to 5 recommendations if they all match the symptoms
+        matching_sections = matching_sections[:5]
         
         # Note: We no longer add recommendations from symptom tables
         # since we've already done proper symptom-based filtering above
@@ -813,6 +1257,8 @@ USER QUERY: {query}"""
         criteria_parts = []
         if patient_criteria.get("age"):
             criteria_parts.append(f"Age {patient_criteria['age']}")
+        if patient_criteria.get("sex"):
+            criteria_parts.append(patient_criteria["sex"])
         if patient_criteria.get("smoking"):
             criteria_parts.append("ever smoked")
         if patient_criteria.get("symptoms"):
@@ -824,30 +1270,85 @@ USER QUERY: {query}"""
         
         criteria_str = ", ".join(criteria_parts) if criteria_parts else "provided criteria"
         
+        # Extract cancer type - prioritize specific cancer names from content (more accurate than broad cancer_site)
+        cancer_type = "cancer"
+        header_lower = section.header.lower()
+        content_lower = section.content.lower()[:400]  # Check first 400 chars for specificity
+        
+        # Specific cancer type patterns - check content FIRST (most accurate)
+        cancer_patterns = [
+            (r'pancreatic\s+cancer', 'pancreatic cancer'),
+            (r'oesophageal\s+cancer', 'oesophageal cancer'),
+            (r'stomach\s+cancer', 'stomach cancer'),
+            (r'colorectal\s+cancer', 'colorectal cancer'),
+            (r'lung\s+cancer', 'lung cancer'),
+            (r'mesothelioma', 'mesothelioma'),
+            (r'endometrial\s+cancer', 'endometrial cancer'),
+            (r'cervical\s+cancer', 'cervical cancer'),
+            (r'ovarian\s+cancer', 'ovarian cancer'),
+            (r'prostate\s+cancer', 'prostate cancer'),
+            (r'bladder\s+cancer', 'bladder cancer'),
+            (r'renal\s+cancer', 'renal cancer'),
+            (r'laryngeal\s+cancer', 'laryngeal cancer'),
+            (r'oral\s+cancer', 'oral cancer'),
+            (r'thyroid\s+cancer', 'thyroid cancer'),
+            (r'breast\s+cancer', 'breast cancer'),
+        ]
+        
+        # First, try to extract from content (most specific)
+        for pattern, cancer_name in cancer_patterns:
+            if re.search(pattern, content_lower):
+                cancer_type = cancer_name
+                break
+        
+        # If not found in content, try header
+        if cancer_type == "cancer":
+            for pattern, cancer_name in cancer_patterns:
+                if re.search(pattern, header_lower):
+                    cancer_type = cancer_name
+                    break
+        
+        # Last resort: use cancer_site field (but this is too broad, so only as fallback)
+        if cancer_type == "cancer" and section.cancer_site:
+            cancer_site_map = {
+                'lung': 'lung cancer',
+                'lower_gi': 'colorectal cancer',
+                'breast': 'breast cancer',
+                'gynaecological': 'gynaecological cancer',
+                'urological': 'urological cancer',
+                'skin': 'skin cancer',
+                'head_neck': 'head and neck cancer',
+                'cns': 'brain and central nervous system cancer',
+                'haematological': 'haematological cancer',
+                # Note: upper_gi is too broad - don't use it, extract from content instead
+            }
+            if section.cancer_site in cancer_site_map:
+                cancer_type = cancer_site_map[section.cancer_site]
+        
         # Get action from criteria spec or header
         action = "See recommendation for appropriate action."
         if section.criteria_spec and section.criteria_spec.get("action"):
             action = section.criteria_spec["action"]
         
         if meets_criteria:
-            response = f"""✅ **NG12 Recommendation**
+            response = f"""✅ **NG12 Recommendation for {cancer_type}**
 
 **Based on:** {criteria_str}
 
 **Action:** {action}
 
-**Rationale:** Patient meets the criteria specified in NG12 {section.section_id}.
+**Rationale:** Patient meets the criteria specified in NG12 {section.section_id} for assessment of {cancer_type}.
 
 **Source:** NG12 {section.section_id} (Lines {section.start_line}-{section.end_line})
 
 ---
 *Source: NICE NG12. Clinical decisions remain with the treating clinician.*"""
         else:
-            response = f"""⚠️ **NG12 Criteria Not Met**
+            response = f"""⚠️ **NG12 Criteria Not Met for {cancer_type}**
 
 **Based on:** {criteria_str}
 
-**Assessment:** The provided patient criteria do not fully meet the threshold for NG12 {section.section_id}.
+**Assessment:** The provided patient criteria do not fully meet the threshold for NG12 {section.section_id} (assessment of {cancer_type}).
 
 **Recommendation:** Review the full criteria in NG12 {section.section_id} and consider whether additional patient information may be relevant.
 
@@ -1157,8 +1658,9 @@ USER QUERY: {query}"""
                 yield f"data: {json_module.dumps({'type': 'done', 'response_type': 'refusal', 'citations': [], 'artifacts': []})}\n\n"
                 return
             
-            # 2. Section retrieval - use top_k=8 to capture multiple relevant pathways
-            sections = self.retriever.search(query, top_k=8)
+            # 2. Section retrieval - multi-pass with score-based ranking
+            sections = self._retrieve_with_ranking(query)
+            logger.info("Section retrieval", sections_count=len(sections))
             
             if not sections:
                 no_results_msg = "NG12 does not appear to contain information specifically addressing your query."
@@ -1169,20 +1671,26 @@ USER QUERY: {query}"""
             # 3. Format response with LLM (streaming)
             response_text = await self._format_response(query, sections)
             
+            # 4. Parse pathway criteria from LLM response (before removing it)
+            rec_ids_from_response, symptoms_from_response = self._parse_pathway_criteria_from_response(response_text)
+            
+            # Remove the PATHWAY_CRITERIA section from response (it's metadata, not for display)
+            response_text_clean = re.sub(r'---PATHWAY_CRITERIA_START---.*?---PATHWAY_CRITERIA_END---', '', response_text, flags=re.DOTALL).strip()
+            
             # Stream response in chunks
             chunk_size = 50
-            for i in range(0, len(response_text), chunk_size):
-                chunk = response_text[i:i + chunk_size]
+            for i in range(0, len(response_text_clean), chunk_size):
+                chunk = response_text_clean[i:i + chunk_size]
                 yield f"data: {json_module.dumps({'type': 'chunk', 'content': chunk})}\n\n"
             
-            # 4. Build artifacts from sections
+            # 5. Build artifacts from sections
             artifacts = self._build_artifacts(sections)
             
-            # 5. Build citations from sections
+            # 6. Build citations from sections
             citations = self._build_citations(sections)
             
-            # 6. Deterministic pathway logic - pass query to match symptoms
-            pathway_available, pathway_spec = self._build_pathway_spec(sections, query)
+            # 7. Build pathway spec using recommendation IDs from LLM response
+            pathway_available, pathway_spec = self._build_pathway_spec_from_ids(sections, rec_ids_from_response)
             
             # Send done event
             done_data = {

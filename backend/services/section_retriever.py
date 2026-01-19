@@ -32,6 +32,7 @@ class RetrievalResult:
     criteria_spec: Optional[dict]
     cancer_site: Optional[str]
     score: float
+    level: int = 4  # Header level (1-4)
     
     @classmethod
     def from_section(cls, section: dict, score: float) -> "RetrievalResult":
@@ -47,7 +48,8 @@ class RetrievalResult:
             has_criteria=section["has_criteria"],
             criteria_spec=section.get("criteria_spec"),
             cancer_site=section.get("cancer_site"),
-            score=score
+            score=score,
+            level=section.get("level", 4)
         )
     
     def to_artifact_dict(self) -> dict:
@@ -182,7 +184,9 @@ class SectionRetriever:
         query: str, 
         top_k: int = 5,
         section_types: Optional[list[str]] = None,
-        require_criteria: bool = False
+        require_criteria: bool = False,
+        header_levels: Optional[list[int]] = None,
+        include_overlap: bool = False
     ) -> list[RetrievalResult]:
         """
         Search for relevant sections using hybrid BM25 + semantic search.
@@ -192,6 +196,8 @@ class SectionRetriever:
             top_k: Number of results to return
             section_types: Optional filter for section types
             require_criteria: Only return sections with has_criteria=True
+            header_levels: Optional filter for header levels (e.g., [2, 3] for H2/H3 only)
+            include_overlap: If True, include adjacent sections for context
             
         Returns:
             List of RetrievalResult sorted by relevance score
@@ -282,6 +288,8 @@ class SectionRetriever:
         
         # Build results with filtering
         results = []
+        selected_indices = set()
+        
         for idx in top_indices:
             section = self.sections[idx]
             score = float(combined_scores[idx])
@@ -291,15 +299,51 @@ class SectionRetriever:
                 continue
             if require_criteria and not section["has_criteria"]:
                 continue
+            if header_levels and section.get("level", 4) not in header_levels:
+                continue
             
             # Skip very low scores
             if score < 0.1:
                 continue
             
             results.append(RetrievalResult.from_section(section, score))
+            selected_indices.add(idx)
             
             if len(results) >= top_k:
                 break
+        
+        # Add overlap (adjacent sections) for context if requested
+        if include_overlap and results:
+            overlap_results = []
+            for idx in selected_indices:
+                current_section = self.sections[idx]
+                current_level = current_section.get("level", 4)
+                
+                # Add previous section if exists and not already included
+                if idx > 0 and (idx - 1) not in selected_indices:
+                    prev_section = self.sections[idx - 1]
+                    prev_level = prev_section.get("level", 4)
+                    # Only add if passes header_levels filter (if specified)
+                    if header_levels is None or prev_level in header_levels:
+                        overlap_results.append(
+                            RetrievalResult.from_section(prev_section, score=0.5)
+                        )
+                # Add next section if exists and not already included
+                if idx < len(self.sections) - 1 and (idx + 1) not in selected_indices:
+                    next_section = self.sections[idx + 1]
+                    next_level = next_section.get("level", 4)
+                    # Only add if passes header_levels filter (if specified)
+                    if header_levels is None or next_level in header_levels:
+                        overlap_results.append(
+                            RetrievalResult.from_section(next_section, score=0.5)
+                        )
+            
+            # Add unique overlap sections (limit to 1 to keep context focused)
+            seen_ids = {r.section_id for r in results}
+            for overlap in overlap_results[:1]:  # Limit overlap to 1
+                if overlap.section_id not in seen_ids:
+                    results.append(overlap)
+                    seen_ids.add(overlap.section_id)
         
         return results
     
