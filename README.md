@@ -29,10 +29,15 @@ Qualified Health is a clinical decision support chatbot for healthcare professio
 ### Key Features
 
 - ⚡ **Streaming responses** with stop button
-- 📋 **NG12 citations** in every answer
-- ❓ **Smart probing** for missing info (age, symptoms)
+- 📋 **NG12 citations** in every answer with clickable badges that scroll to document sections
+- 🎯 **Multi-pass retrieval** - Combines context sections and actionable recommendations with score-based ranking
+- 🔍 **Hybrid search** - BM25 + semantic search for accurate section retrieval
+- ✅ **Interactive pathway checker** - Validate patient criteria against NG12 recommendations with visual UI
+- 🧠 **LLM-powered symptom extraction** - Automatically identifies symptoms from queries (no hardcoded lists)
+- 📊 **Reference extraction** - Automatically follows recommendation references from symptom tables
+- 🎨 **Beautiful UI** - Modern, clinical-grade interface with smooth animations
 - 🚫 **Fail-closed** for treatment/diagnosis queries
-- 💾 **Conversation history** persisted locally
+- 🔒 **Stateless queries** - Each query is independent (no conversation history)
 
 ## Quick Start
 
@@ -40,7 +45,7 @@ Qualified Health is a clinical decision support chatbot for healthcare professio
 
 - Python 3.11+
 - Node.js 20+
-- DeepSeek API key
+- OpenAI API key (for GPT-4o-mini)
 
 ### 1. Clone & Configure
 
@@ -49,7 +54,7 @@ git clone https://github.com/yourusername/qualified-health.git
 cd qualified-health
 
 # Create .env in project root
-echo "DEEPSEEK_API_KEY=your-api-key-here" > .env
+echo "OPENAI_API_KEY=your-api-key-here" > .env
 ```
 
 ### 2. Backend
@@ -74,29 +79,53 @@ npm run dev
 
 Visit **http://localhost:3000**
 
+### 4. Generate Sections Index (First Time)
+
+The system requires a parsed sections index. Generate it from the NG12 markdown:
+
+```bash
+cd backend
+python scripts/parse_sections.py
+```
+
+This creates `data/sections_index.json` with structured sections, criteria, and metadata.
+
 ## Project Structure
 
 ```
 qualified-health/
 ├── backend/
-│   ├── main.py           # FastAPI app & routes
-│   ├── chat_service.py   # LLM streaming integration
-│   ├── models.py         # Pydantic schemas
-│   ├── config.py         # Environment settings
+│   ├── main.py                    # FastAPI app & routes
+│   ├── services/
+│   │   ├── custom_chat_service.py # Main chat service with multi-pass retrieval
+│   │   ├── section_retriever.py   # Hybrid BM25 + semantic search
+│   │   ├── section_parser.py      # Parses NG12 markdown into structured sections
+│   │   └── ...
+│   ├── models/
+│   │   └── models.py              # Pydantic schemas
+│   ├── config/
+│   │   └── config.py              # Environment settings
+│   ├── scripts/
+│   │   └── parse_sections.py      # CLI to regenerate sections_index.json
 │   └── requirements.txt
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/        # Landing, Chat pages
-│   │   ├── components/   # ChatWindow, Sidebar
-│   │   ├── stores/       # Zustand state
-│   │   └── lib/          # API client, utils
+│   │   ├── pages/                 # Landing, Chat pages
+│   │   ├── components/
+│   │   │   ├── ChatWindow.tsx     # Main chat interface
+│   │   │   ├── PathwayTool.tsx    # Interactive criteria checker
+│   │   │   └── DocumentViewer.tsx # NG12 document viewer with scroll-to-section
+│   │   ├── stores/
+│   │   │   └── chatStore.ts       # Zustand state management
+│   │   └── lib/                   # API client, utils
 │   └── package.json
 │
 ├── data/
-│   └── final.md          # NICE NG12 guideline source
+│   ├── final.md                   # NICE NG12 guideline source
+│   └── sections_index.json        # Parsed sections with criteria (generated)
 │
-└── .env                  # API keys (not committed)
+└── .env                           # API keys (not committed)
 ```
 
 ## API
@@ -106,29 +135,98 @@ qualified-health/
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/api/v1/chat` | POST | Send message (non-streaming) |
-| `/api/v1/chat/stream` | POST | Send message (SSE streaming) |
+| `/api/v1/chat/custom/stream` | POST | Custom chat with section retrieval (SSE streaming) |
+| `/api/v1/chat/custom` | POST | Custom chat (non-streaming) |
+| `/api/v1/pathway/compile` | POST | Compile recommendation with patient criteria |
+| `/api/v1/document/final` | GET | Get NG12 document source |
 
 ### Streaming Example
 
 ```bash
-curl -N -X POST http://localhost:8000/api/v1/chat/stream \
+curl -N -X POST http://localhost:8000/api/v1/chat/custom/stream \
   -H "Content-Type: application/json" \
   -d '{"message": "45yo with visible haematuria, what pathway?"}'
+```
+
+### Compile Pathway Example
+
+```bash
+curl -X POST http://localhost:8000/api/v1/pathway/compile \
+  -H "Content-Type: application/json" \
+  -d '{
+    "recommendation_id": "1.1.2",
+    "patient_criteria": {
+      "age": 50,
+      "sex": "male",
+      "smoking": true,
+      "symptoms": ["chest pain"]
+    }
+  }'
 ```
 
 ## Tech Stack
 
 **Backend:**
 - FastAPI + Uvicorn
-- OpenAI SDK (DeepSeek compatible)
+- OpenAI SDK (GPT-4o-mini)
+- Hybrid search: BM25 (rank-bm25) + Semantic (SentenceTransformers)
 - Pydantic + Structlog
+- Section-based retrieval with structured criteria parsing
 
 **Frontend:**
 - React 19 + TypeScript
 - Tailwind CSS + Framer Motion
-- Zustand for state
+- Zustand for state management
 - Vite for builds
+- React Markdown for document rendering
+
+## Architecture
+
+### Retrieval System
+
+The system uses a **multi-pass retrieval approach** with score-based ranking:
+
+1. **Pass 1: Context Sections** - Retrieves top 5 general sections (symptom tables, overviews)
+2. **Pass 2: Criteria Sections** - Retrieves top 5 sections with actionable criteria (numbered recommendations)
+3. **Pass 3: Reference Extraction** - Extracts recommendation IDs (e.g., `[1.1.2] [1.1.5]`) from symptom tables and includes those specific recommendations
+4. **Pass 4: Related Recommendations** - Finds related recommendations from same cancer site section (e.g., if 1.1.2 found, also get 1.1.5 for mesothelioma)
+5. **Score-based Ranking** - Merges all results, ranks by similarity score, includes ties within 0.15 threshold (max 10 results)
+
+**Hybrid Search:**
+- **BM25** (lexical) - 50% weight, handles exact term matches
+- **Semantic** (SentenceTransformers) - 50% weight, handles conceptual similarity
+- **Criteria boosting** - Sections with symptoms matching query get additional score boost
+
+### Response Generation
+
+- **LLM-powered symptom extraction** - Automatically identifies symptoms from queries (no hardcoded lists)
+- **Structured output** - LLM includes `---PATHWAY_CRITERIA_START---` section with:
+  - All recommendation IDs it included
+  - Extracted symptoms from the query
+- **Pathway tool** - Built from LLM's identified recommendations for interactive criteria checking
+- **Clickable badges** - All NG12 references (e.g., "NG12 1.1.2") are clickable and scroll to document sections
+- **Cancer type detection** - Automatically identifies cancer type from section content for compiled recommendations
+
+### Interactive Pathway Checker
+
+The PathwayTool component allows clinicians to:
+- **Input patient criteria**: Age, biological sex, smoking history, presenting symptoms
+- **See all relevant symptoms**: Aggregates symptoms from ALL matching recommendations
+- **Validate against NG12**: Real-time feedback on whether criteria are met
+- **View specific actions**: Shows cancer type and recommended action for each pathway
+- **Clean symptom display**: Automatically removes qualifiers and duplicates
+
+### Data Processing
+
+- **Section Parser** (`section_parser.py`) - Parses NG12 markdown into structured sections with:
+  - Header hierarchy and breadcrumbs
+  - Extracted criteria (age, symptoms, smoking)
+  - Cancer site classification
+  - Section types (recommendation, symptom_table, definition, etc.)
+- **Sections Index** (`sections_index.json`) - Pre-computed index with:
+  - 291 total sections
+  - 28 sections with actionable criteria
+  - BM25 and semantic embeddings pre-computed for fast retrieval
 
 ## Safety
 
@@ -137,7 +235,8 @@ curl -N -X POST http://localhost:8000/api/v1/chat/stream \
 - This is a **decision-support tool**, not a replacement for clinical judgment
 - **Out of scope:** Treatment, medication dosing, diagnostic interpretation
 - Always consult full NICE guidelines for complex cases
-- No patient data is stored or transmitted
+- **No patient data is stored or transmitted** - queries are stateless (no conversation history)
+- Each query is processed independently based solely on the current question and retrieved sections
 
 ## License
 
@@ -146,4 +245,5 @@ MIT License
 ## Acknowledgments
 
 - [NICE](https://www.nice.org.uk/) for NG12 guideline
-- Built with DeepSeek, FastAPI, React, and Tailwind CSS
+- Built with OpenAI (GPT-4o-mini), FastAPI, React, and Tailwind CSS
+- Uses SentenceTransformers for semantic search and rank-bm25 for lexical search

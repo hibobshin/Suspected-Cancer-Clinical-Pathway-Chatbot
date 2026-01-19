@@ -183,17 +183,7 @@ export const useChatStore = create<ChatState>()(
         // Create abort controller for this request
         currentAbortController = new AbortController();
         
-        // Build context from previous messages
-        // Filter out typing messages and messages with empty content (validation requires min_length=1)
-        const previousMessages = conversation.messages
-          .filter(m => !m.isTyping && m.content && m.content.trim().length > 0)
-          .slice(-10)
-          .map(m => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content.trim(),
-            timestamp: m.timestamp.toISOString(),
-          }));
-        
+        // Chat history is disabled - each query is treated independently
         let fullContent = '';
         
         // Determine endpoint based on solution mode
@@ -226,12 +216,7 @@ export const useChatStore = create<ChatState>()(
             message: content,
             route_type: effectiveRouteType,
             conversation_id: conversationId,
-            context: previousMessages.length > 0
-              ? {
-                  conversation_id: conversationId,
-                  messages: previousMessages,
-                }
-              : undefined,
+            context: undefined, // Chat history disabled
           },
           // onChunk - update the streaming message with new content
           (chunk: string) => {

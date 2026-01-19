@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
   User,
+  Users,
   Stethoscope,
   CheckCircle2,
   AlertCircle,
@@ -17,6 +18,7 @@ import {
   ClipboardCheck,
   ChevronRight,
   Sparkles,
+  Cigarette,
 } from 'lucide-react';
 import { compileRecommendation } from '@/lib/api';
 import type { PathwaySpec, PatientCriteria, Criterion, CompileResponse } from '@/types';
@@ -71,6 +73,7 @@ const COMMON_SYMPTOMS = [
 export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
   const [criteria, setCriteria] = useState<PatientCriteria>({
     age: undefined,
+    sex: undefined,
     smoking: false,
     symptoms: [],
   });
@@ -85,13 +88,66 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
   });
 
   const getAvailableSymptoms = (): string[] => {
+    // Collect ALL symptoms from ALL criteria groups across all recommendations
+    const allSymptoms = new Set<string>();
+    
     for (const group of spec.criteria_groups) {
       for (const c of group.criteria) {
         if (c.field === 'symptoms' && Array.isArray(c.value)) {
-          return c.value as string[];
+          // Add all symptoms from this criterion
+          c.value.forEach((symptom: string) => {
+            // Clean the symptom first
+            let cleaned = symptom.trim();
+            
+            // Remove leading "with" phrases (e.g., "with a change in bowel habit" -> "change in bowel habit")
+            cleaned = cleaned.replace(/^(with\s+(?:a|an|the)\s+)/i, '');
+            cleaned = cleaned.replace(/^(with\s+)/i, '');
+            
+            // Remove qualifier phrases that aren't actual symptoms (trailing)
+            cleaned = cleaned.replace(/\s+with\s+(?:any\s+of\s+the\s+following|low\s+haemoglobin\s+levels|raised\s+platelet\s+count|iron-deficiency\s+anaemia).*$/i, '');
+            cleaned = cleaned.replace(/\s+or\s+(?:vomiting|any\s+of\s+the\s+following).*$/i, '');
+            
+            // Remove trailing conjunctions and punctuation
+            cleaned = cleaned.replace(/\s+(or|and|who|with|that)\s*:?\s*$/i, '');
+            cleaned = cleaned.replace(/[.,;:]+$/, '');
+            cleaned = cleaned.trim();
+            
+            // Skip if empty, too short, or contains qualifier phrases
+            if (cleaned.length > 2 && 
+                cleaned.length < 100 && 
+                !cleaned.toLowerCase().includes('any of the following') &&
+                !cleaned.toLowerCase().includes('with any')) {
+              allSymptoms.add(cleaned.toLowerCase());
+            }
+          });
         }
       }
     }
+    
+    // Split compound symptoms (e.g., "nausea or vomiting" -> ["nausea", "vomiting"])
+    const expandedSymptoms = new Set<string>();
+    for (const symptom of allSymptoms) {
+      if (/\s+or\s+/i.test(symptom)) {
+        // Split on "or" and add each part
+        symptom.split(/\s+or\s+/i).forEach(part => {
+          const cleaned = part.trim().toLowerCase();
+          if (cleaned.length > 2 && !cleaned.includes('any of the following')) {
+            expandedSymptoms.add(cleaned);
+          }
+        });
+      } else {
+        expandedSymptoms.add(symptom);
+      }
+    }
+    
+    // Final deduplication and sort
+    const uniqueSymptoms = Array.from(expandedSymptoms).sort();
+    
+    // Return all unique symptoms, sorted for consistency
+    if (uniqueSymptoms.length > 0) {
+      return uniqueSymptoms;
+    }
+    
     return COMMON_SYMPTOMS;
   };
 
@@ -206,8 +262,9 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
 
       {/* Form Section */}
       <div className="px-5 py-5 space-y-5">
-        {/* Age Field */}
-        {fields.has('age') && (
+        {/* Age and Sex Fields - Side by Side */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Age Field */}
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm font-medium text-surface-700">
               <User className="w-4 h-4 text-surface-400" />
@@ -226,13 +283,79 @@ export function PathwayTool({ spec, onSubmit, onCancel }: PathwayToolProps) {
                   })
                 }
                 className="w-full bg-white border border-surface-300 rounded-xl px-4 py-3 text-surface-900 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-shadow"
-                placeholder="Enter age in years"
+                placeholder="Enter age"
               />
               {criteria.age && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                   <CheckCircle2 className="w-5 h-5 text-green-500" />
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Sex Field */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-surface-700">
+              <Users className="w-4 h-4 text-surface-400" />
+              Biological Sex
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCriteria({ ...criteria, sex: 'male' })}
+                className={cn(
+                  'flex-1 px-4 py-3 text-sm font-medium rounded-xl border transition-all',
+                  criteria.sex === 'male'
+                    ? 'bg-primary-50 border-primary-300 text-primary-700 shadow-sm'
+                    : 'bg-white border-surface-300 text-surface-600 hover:border-surface-400'
+                )}
+              >
+                Male
+              </button>
+              <button
+                onClick={() => setCriteria({ ...criteria, sex: 'female' })}
+                className={cn(
+                  'flex-1 px-4 py-3 text-sm font-medium rounded-xl border transition-all',
+                  criteria.sex === 'female'
+                    ? 'bg-primary-50 border-primary-300 text-primary-700 shadow-sm'
+                    : 'bg-white border-surface-300 text-surface-600 hover:border-surface-400'
+                )}
+              >
+                Female
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Smoking Status */}
+        {(fields.has('smoking') || spec.verbatim_text.toLowerCase().includes('smok')) && (
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-surface-700">
+              <Cigarette className="w-4 h-4 text-surface-400" />
+              Smoking History
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCriteria({ ...criteria, smoking: true })}
+                className={cn(
+                  'flex-1 px-4 py-3 text-sm font-medium rounded-xl border transition-all',
+                  criteria.smoking === true
+                    ? 'bg-primary-50 border-primary-300 text-primary-700 shadow-sm'
+                    : 'bg-white border-surface-300 text-surface-600 hover:border-surface-400 hover:shadow-sm'
+                )}
+              >
+                Ever Smoked
+              </button>
+              <button
+                onClick={() => setCriteria({ ...criteria, smoking: false })}
+                className={cn(
+                  'flex-1 px-4 py-3 text-sm font-medium rounded-xl border transition-all',
+                  criteria.smoking === false
+                    ? 'bg-primary-50 border-primary-300 text-primary-700 shadow-sm'
+                    : 'bg-white border-surface-300 text-surface-600 hover:border-surface-400 hover:shadow-sm'
+                )}
+              >
+                Never Smoked
+              </button>
             </div>
           </div>
         )}

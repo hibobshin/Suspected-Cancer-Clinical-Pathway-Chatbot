@@ -62,6 +62,7 @@ export interface PathwaySpec {
 
 export interface PatientCriteria {
   age?: number;
+  sex?: 'male' | 'female';
   smoking?: boolean;
   symptoms?: string[];
   [key: string]: unknown;
