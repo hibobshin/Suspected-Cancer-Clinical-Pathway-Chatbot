@@ -1128,7 +1128,7 @@ Symptoms:"""
             }
         
         # Check if patient meets criteria
-        meets_criteria = self._evaluate_criteria(section.criteria_spec, patient_criteria)
+        meets_criteria = self._evaluate_criteria(section.criteria_spec, patient_criteria, section.content)
         
         # Format the compiled recommendation
         response = self._format_compiled_recommendation(
@@ -1156,7 +1156,7 @@ Symptoms:"""
             "artifacts": [artifact],
         }
     
-    def _evaluate_criteria(self, criteria_spec: Optional[dict], patient_criteria: dict) -> bool:
+    def _evaluate_criteria(self, criteria_spec: Optional[dict], patient_criteria: dict, section_content: str = "") -> bool:
         """
         Evaluate if patient criteria meet the recommendation criteria.
         
@@ -1170,6 +1170,7 @@ Symptoms:"""
         Args:
             criteria_spec: The pre-parsed criteria from the section.
             patient_criteria: The patient data from the pathway UI.
+            section_content: The full section content text (for checking compound patterns).
             
         Returns:
             True if criteria are met, False otherwise.
@@ -1214,9 +1215,62 @@ Symptoms:"""
                 expected_symptoms = symptom_criterion.get("value", [])
                 operator = symptom_criterion.get("operator", "has_any")
                 
+                # Check for compound criteria patterns in the section content
+                # Some recommendations require symptoms in combination (e.g., "nausea or vomiting with weight loss")
+                content_lower = section_content.lower() if section_content else ""
+                has_compound_patterns = any(
+                    phrase in content_lower for phrase in [
+                        "with any of the following",
+                        "with low haemoglobin",
+                        "with raised platelet",
+                        "nausea or vomiting with"
+                    ]
+                )
+                
                 # Count matching symptoms
                 matching_symptoms = [s for s in patient_symptoms if s.lower() in [e.lower() for e in expected_symptoms]]
                 
+                # If compound patterns exist, validate compound criteria
+                if has_compound_patterns:
+                    # Check for specific compound patterns that must be satisfied
+                    # Pattern 1: "nausea or vomiting with any of the following: weight loss, reflux, dyspepsia, upper abdominal pain"
+                    has_nausea_or_vomiting = any(s.lower() in ["nausea", "vomiting"] for s in patient_symptoms)
+                    has_compound_secondary = any(s.lower() in ["weight loss", "reflux", "dyspepsia", "upper abdominal pain"] for s in patient_symptoms)
+                    
+                    if has_nausea_or_vomiting and has_compound_secondary:
+                        return True
+                    
+                    # Pattern 2: "raised platelet count with any of the following: nausea, vomiting, weight loss, reflux, dyspepsia, upper abdominal pain"
+                    # Note: We don't have "raised platelet count" as a patient symptom field, so skip this for now
+                    # (This would require additional patient data fields)
+                    
+                    # Pattern 3: "upper abdominal pain with low haemoglobin levels"
+                    # Note: We don't have "low haemoglobin levels" as a patient symptom field, so skip this
+                    
+                    # Pattern 4: Standalone "treatment-resistant dyspepsia"
+                    if any("treatment-resistant dyspepsia" in s.lower() for s in patient_symptoms):
+                        return True
+                    
+                    # If we have compound patterns but none of the compound conditions are met,
+                    # and the patient only has symptoms that appear in compound contexts,
+                    # then criteria are NOT met
+                    # Symptoms that ONLY appear in compound contexts (not standalone):
+                    compound_only_symptoms = ["weight loss", "reflux", "dyspepsia", "upper abdominal pain"]
+                    # Check if patient only has symptoms that require compounds
+                    if matching_symptoms:
+                        # Check if ALL matching symptoms are compound-only (not standalone)
+                        all_compound_only = all(
+                            s.lower() in compound_only_symptoms 
+                            for s in matching_symptoms
+                        )
+                        if all_compound_only:
+                            # These symptoms only appear in compound contexts for this recommendation
+                            # Need to check if compound condition is met
+                            if not (has_nausea_or_vomiting and has_compound_secondary):
+                                # Compound condition not met - criteria NOT satisfied
+                                continue  # Try next group (will eventually return False)
+                
+                # Standard logic for non-compound or when compound conditions are met
                 # Pragmatic logic based on NG12 patterns:
                 # If ever smoked, only need 1 symptom
                 # If not smoked, need 2+ symptoms
