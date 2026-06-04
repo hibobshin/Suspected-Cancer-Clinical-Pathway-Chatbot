@@ -1,15 +1,19 @@
-# Qualified Health
+# Suspected Cancer Clinical Pathway Chatbot
 
-AI-powered clinical decision support for suspected cancer recognition and referral pathways, based on NICE NG12 guideline.
+A personal learning project exploring retrieval-augmented generation (RAG), GraphRAG, and structured criteria checking over the [NICE NG12](https://www.nice.org.uk/guidance/ng12) guideline on suspected cancer recognition and referral.
 
-![NICE NG12](https://img.shields.io/badge/NICE-NG12-0ea5e9)
+![Personal Project](https://img.shields.io/badge/scope-personal%20project-8b5cf6)
+![Status](https://img.shields.io/badge/status-experimental-orange)
+![NICE NG12](https://img.shields.io/badge/data-NICE%20NG12-0ea5e9)
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![React](https://img.shields.io/badge/react-19-61dafb)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+> **Personal project — not a medical product.** This repo is an experiment I built on my own time to explore clinical-domain RAG techniques. It is **not** affiliated with NICE, the NHS, or any healthcare provider, **not** clinically validated, **not** intended for use in patient care, and **not** for sale. See [Safety & disclaimer](#safety--disclaimer).
+
 ## Overview
 
-Qualified Health is a clinical decision support chatbot for healthcare professionals. It provides instant, evidence-based guidance on suspected cancer recognition and referral based on NICE NG12.
+This project is a chatbot that answers questions about suspected-cancer referral pathways by retrieving from a parsed copy of the NICE NG12 guideline. It exists to let me play with three retrieval strategies side-by-side — classic RAG, GraphRAG, and a custom section-aware retriever — and compare how each handles structured clinical criteria.
 
 ### Cancer Types Covered
 
@@ -35,7 +39,7 @@ Qualified Health is a clinical decision support chatbot for healthcare professio
 - ✅ **Interactive pathway checker** - Validate patient criteria against NG12 recommendations with visual UI
 - 🧠 **LLM-powered symptom extraction** - Automatically identifies symptoms from queries (no hardcoded lists)
 - 📊 **Reference extraction** - Automatically follows recommendation references from symptom tables
-- 🎨 **Beautiful UI** - Modern, clinical-grade interface with smooth animations
+- 🎨 **Modern UI** with smooth animations
 - 🚫 **Fail-closed** for treatment/diagnosis queries
 - 🔒 **Stateless queries** - Each query is independent (no conversation history)
 
@@ -50,8 +54,8 @@ Qualified Health is a clinical decision support chatbot for healthcare professio
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/yourusername/qualified-health.git
-cd qualified-health
+git clone https://github.com/<your-username>/Suspected-Cancer-Clinical-Pathway-Chatbot.git
+cd Suspected-Cancer-Clinical-Pathway-Chatbot
 
 # Create .env in project root
 echo "OPENAI_API_KEY=your-api-key-here" > .env
@@ -228,22 +232,24 @@ The PathwayTool component allows clinicians to:
   - 28 sections with actionable criteria
   - BM25 and semantic embeddings pre-computed for fast retrieval
 
-## Safety
+## Safety & disclaimer
 
-⚠️ **Important:**
+⚠️ **Read this before doing anything with the code or its outputs.**
 
-- This is a **decision-support tool**, not a replacement for clinical judgment
-- **Out of scope:** Treatment, medication dosing, diagnostic interpretation
-- Always consult full NICE guidelines for complex cases
-- **No patient data is stored or transmitted** - queries are stateless (no conversation history)
-- Each query is processed independently based solely on the current question and retrieved sections
+- **Personal project, not a medical product.** This was built by one person as a learning exercise. It has not undergone clinical validation, regulatory review, security review, or any form of QA suitable for healthcare use.
+- **Not affiliated** with NICE, the NHS, the UK government, my employer, or any healthcare organization. NICE NG12 is used only as a public reference text.
+- **Not for patient care.** Do not use this tool, its outputs, or any derivative to make, support, or influence real clinical decisions. It may produce inaccurate, incomplete, outdated, or fabricated information.
+- **Not for sale or production deployment.** The repo is published for educational and portfolio purposes.
+- **Out of scope:** Treatment, medication dosing, diagnostic interpretation, anything outside the four corners of NG12.
+- **No patient data should ever be entered.** Queries are stateless and not persisted by the app, but they are sent to a third-party LLM provider (OpenAI). Treat any input as if it were public.
+- For real clinical questions, consult the [full NICE guidelines](https://www.nice.org.uk/guidance/ng12) and your local trust's referral protocols.
 
 ## License
 
-MIT License
+MIT License — see [`LICENSE`](LICENSE) if present. The MIT license disclaims all warranties and liability; using this code is at your own risk.
 
 ## Acknowledgments
 
-- [NICE](https://www.nice.org.uk/) for NG12 guideline
-- Built with OpenAI (GPT-4o-mini), FastAPI, React, and Tailwind CSS
-- Uses SentenceTransformers for semantic search and rank-bm25 for lexical search
+- [NICE](https://www.nice.org.uk/) for the NG12 guideline text (referenced under fair use for personal research; not endorsed by NICE).
+- Built with OpenAI (GPT-4o-mini), FastAPI, React, and Tailwind CSS.
+- Uses SentenceTransformers for semantic search and rank-bm25 for lexical search.

@@ -105,42 +105,58 @@ export function ChatSidebar() {
                 </div>
                 
                 <div className="space-y-3">
-                  {/* GraphRAG Option */}
+                  {/* GraphRAG Option — disabled */}
                   <button
-                    onClick={() => handleModeSelect('graphrag')}
-                    className="w-full text-left p-4 rounded-xl border-2 border-surface-200 hover:border-violet-300 hover:bg-violet-50 transition-all group"
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    title="GraphRAG mode is unavailable in this build"
+                    className="w-full text-left p-4 rounded-xl border-2 border-surface-200 bg-surface-50 opacity-50 cursor-not-allowed"
                   >
                     <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-surface-400 to-surface-500 flex items-center justify-center flex-shrink-0">
                         <Database className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1">
-                        <h4 className="font-semibold text-surface-900 mb-1">GraphRAG</h4>
-                        <p className="text-sm text-surface-600">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-semibold text-surface-700">GraphRAG</h4>
+                          <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-surface-200 text-surface-600">
+                            Unavailable
+                          </span>
+                        </div>
+                        <p className="text-sm text-surface-500">
                           Knowledge graph queries powered by ArangoDB GraphRAG
                         </p>
                       </div>
                     </div>
                   </button>
-                  
-                  {/* RAG Option */}
+
+                  {/* RAG Option — disabled */}
                   <button
-                    onClick={() => handleModeSelect('rag')}
-                    className="w-full text-left p-4 rounded-xl border-2 border-surface-200 hover:border-primary-300 hover:bg-primary-50 transition-all group"
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    title="RAG mode is unavailable in this build"
+                    className="w-full text-left p-4 rounded-xl border-2 border-surface-200 bg-surface-50 opacity-50 cursor-not-allowed"
                   >
                     <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center flex-shrink-0">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-surface-400 to-surface-500 flex items-center justify-center flex-shrink-0">
                         <Sparkles className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1">
-                        <h4 className="font-semibold text-surface-900 mb-1">RAG</h4>
-                        <p className="text-sm text-surface-600">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-semibold text-surface-700">RAG</h4>
+                          <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-surface-200 text-surface-600">
+                            Unavailable
+                          </span>
+                        </div>
+                        <p className="text-sm text-surface-500">
                           Classic RAG with NICE NG12 guidelines and traceable artifacts
                         </p>
                       </div>
                     </div>
                   </button>
-                  
+
                   {/* Custom Option */}
                   <button
                     onClick={() => handleModeSelect('custom')}
@@ -151,9 +167,9 @@ export function ChatSidebar() {
                         <Brain className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1">
-                        <h4 className="font-semibold text-surface-900 mb-1">Custom</h4>
+                        <h4 className="font-semibold text-surface-900 mb-1">Custom Assistant</h4>
                         <p className="text-sm text-surface-600">
-                          Flexible custom implementation for specialized use cases
+                          NG12 section retriever with structured criteria checking
                         </p>
                       </div>
                     </div>
